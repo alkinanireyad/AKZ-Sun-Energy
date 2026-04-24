@@ -1,470 +1,471 @@
-import { useState, useCallback, type FormEvent, type ReactNode } from "react";
+import { useState, useCallback, useMemo, type ReactNode } from "react";
 import { jsPDF } from "jspdf";
-import akzLogo from "../assets/AKZ_logo.png";
-import { toast } from "@/hooks/use-toast";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import autoTable from "jspdf-autotable";
+import residentialImg from "./residential.png";
+import industrialImg from "./industrial.png";
+import agriculturalImg from "./agricultural.png";
+import akzLogo from "./AKZ_Logo.png";
+
+// ── Arabic Tooltips Map ───────────────────────────────────────────────────────
+export const AR_TIPS: Record<string, string> = {
+  "Panel Brand":
+    "اختر العلامة التجارية للألواح الشمسية. Longi و Jinko و Canadian Solar من أكثر الماركات موثوقيةً وانتشاراً في السوق العراقي.",
+  "Panel Wattage":
+    "قدرة اللوح الشمسي بالواط. القيمة الافتراضية 620W وهي مناسبة للألواح الحديثة عالية الكفاءة. كلما زادت القدرة قلّ عدد الألواح المطلوبة.",
+  "Day Load (Amps)":
+    "إجمالي التيار المستهلك خلال النهار بالأمبير. لحسابه: جمع قدرات الأجهزة (واط) ÷ 230 فولت. مثال: 4600W ÷ 230V = 20A.",
+  "3-Phase Load (Amps)":
+    "التيار المستهلك للحمل الثلاثي الأوجه بالأمبير. يُستخدم لتشغيل المضخات والمحركات الكبيرة على جهد 400V ثلاثي الأوجه.",
+  "Night Load (Amps)":
+    "التيار المستهلك خلال الليل أو عند انقطاع الكهرباء. يُستخدم لحساب سعة بنك البطاريات اللازم للنسخ الاحتياطي.",
+  "Desired Night Backup (Hours)":
+    "عدد الساعات التي تريد الاستمرار فيها بالعمل عند انقطاع الكهرباء. القيمة الافتراضية 3 ساعات وهي مناسبة لمعظم الاستخدامات السكنية.",
+  "Panel (effP)":
+    "كفاءة اللوح الشمسي الفعلية مع مرور الوقت والأتربة. القيمة 80% تأخذ بالحسبان الفاقد الحراري والأتربة والتقادم الطبيعي.",
+  "Inverter (effI)":
+    "كفاءة الإنفرتر في تحويل التيار المستمر DC إلى تيار متردد AC. معظم الإنفرترات الحديثة تعمل بكفاءة 95-98% لكن نأخذ 80% كهامش أمان.",
+  "Battery (effB)":
+    "كفاءة البطارية في الشحن والتفريغ. هذه القيمة لا تؤثر على حساب عدد البطاريات (الذي يعتمد على DoD فقط) بل على تقدير الخسائر.",
+  "Panels Cost ($)":
+    "التكلفة الإجمالية لمجموعة الألواح الشمسية شاملةً إطارات التثبيت والكابلات DC والموصلات.",
+  "Batteries Cost ($)":
+    "التكلفة الإجمالية لبنك البطاريات. بطاريات LiFePO4 أعلى سعراً لكنها أطول عمراً (10-15 سنة) مقارنةً بالرصاص الحامض.",
+  "Inverter Cost ($)":
+    "تكلفة الإنفرتر مع وحدة التحكم MPPT. يُفضّل اختيار إنفرتر هجين يدعم البطاريات والشبكة في آنٍ واحد.",
+  "Installation & Transport ($)":
+    "تكاليف التركيب والشحن والنقل والتوصيلات الكهربائية وعمل فريق التركيب.",
+  "Expected Monthly Savings (USD)":
+    "تقديرك للوفورات الشهرية في فاتورة الكهرباء أو تكاليف الديزل بعد تشغيل المنظومة. تُستخدم لحساب فترة الاسترداد والعائد السنوي.",
+  "Voc (Open Circuit Voltage)":
+    "جهد الدائرة المفتوحة للوح الشمسي (من datasheet). مهم لحساب أقصى جهد للصف الواحد ومقارنته بحد الإنفرتر الأقصى.",
+  "Vmp (Max Power Voltage)":
+    "جهد نقطة الطاقة القصوى. يُستخدم للتحقق من أن جهد صف الألواح يقع ضمن نطاق MPPT للإنفرتر.",
+  "Imp (Max Power Current)":
+    "تيار نقطة الطاقة القصوى. يُستخدم لحساب إجمالي تيار MPPT ومقارنته بالحد الأقصى للإنفرتر.",
+  "Isc (Short Circuit Current)":
+    "تيار الدائرة القصيرة. مهم لاختيار أحجام الكابلات والمنصهرات (الفيوزات) المناسبة.",
+  "Max PV Voltage":
+    "أقصى جهد DC يتحمله مدخل الإنفرتر من الألواح. يجب أن يكون أعلى من Voc × عدد الألواح في الصف مع مراعاة معامل درجة الحرارة الباردة.",
+  "MPPT Min Voltage":
+    "أدنى جهد يعمل فيه MPPT بكفاءة. يجب أن يكون Vmp للصف أعلى من هذه القيمة في أشد أوقات الحرارة.",
+  "MPPT Max Voltage":
+    "أقصى جهد لنطاق عمل MPPT. يجب أن يكون Vmp للصف أقل من هذه القيمة لضمان تتبع نقطة الطاقة القصوى.",
+  "Max MPPT Current":
+    "أقصى تيار يقبله مدخل MPPT الواحد. مجموع تيارات الأوتار المتوازية يجب ألا يتجاوز هذه القيمة.",
+  "Number of MPPTs":
+    "عدد مداخل MPPT في الإنفرتر. كلما زاد العدد زادت المرونة في توزيع الألواح وتحسّن الأداء عند وجود ظلال جزئية.",
+};
+
+// ── Tooltip Component ─────────────────────────────────────────────────────────
+export function Tooltip({ text, children }: { text: string; children: ReactNode }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative inline-block w-full"
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      onFocus={() => setShow(true)}
+      onBlur={() => setShow(false)}
+    >
+      {children}
+      {show && text && (
+        <div className="absolute z-50 bottom-full left-0 mb-2 w-72 max-w-xs"
+          style={{ filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.18))" }}>
+          <div className="rounded-xl px-4 py-3 text-right" dir="rtl"
+            style={{ background: "#001f3f", border: "1px solid rgba(245,158,11,0.3)" }}>
+            <p className="text-xs text-white/90 leading-relaxed font-medium"
+              style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>{text}</p>
+            <div className="absolute left-4 top-full w-0 h-0"
+              style={{ borderLeft: "6px solid transparent", borderRight: "6px solid transparent", borderTop: "6px solid #001f3f" }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const PANEL_BRANDS   = ["Longi", "Jinko", "Canadian Solar", "Aiko", "Risen", "Philadelphia", "Ecoshield"];
-const INVERTER_SIZES = [5, 8, 10, 12, 15, 20, 30, 50];
-const NAVY = "#001f3f";
-const V1   = 230;
-const V3   = 400;
-const SQ3  = 1.732;
-const PF   = 0.85;
+export const PANEL_BRANDS = ["Longi", "Jinko", "Canadian Solar", "Aiko", "Risen", "Philadelphia", "Ecoshield"];
+export const INVERTER_SIZES = [5, 8, 10, 12, 15, 20, 30, 50];
+export const NAVY = "#001f3f";
+export const AMBER = "#f59e0b";
+const V1 = 230;
+const V3 = 400;
+const SQ3 = 1.732;
+const PF = 0.85;
 const BKWH = 5.12;
-const DOD  = 0.8;
-const SRG  = 1.5;
+const DOD = 0.8;
+const SRG = 1.5;
+export const PSH = 5.5; // Peak Sun Hours — Baghdad avg
 
 type Tab = "residential" | "commercial" | "agricultural";
 
-const TABS: { id: Tab; ar: string; en: string; spec: string }[] = [
-  { id: "residential",  ar: "سكني",  en: "Residential",  spec: "1-Phase · 230V · Battery Backup"      },
-  { id: "commercial",   ar: "تجاري", en: "Commercial",   spec: "High Load · 3-Phase · Battery Backup" },
-  { id: "agricultural", ar: "زراعي", en: "Agricultural", spec: "3-Phase · 400V Pump · No Batteries"   },
+export const TABS: { id: Tab; ar: string; en: string; icon: string; spec: string }[] = [
+  { id: "residential", ar: "سكني",  en: "Residential",  icon: "🏠", spec: "1-Phase · 230V · Battery Backup" },
+  { id: "commercial",  ar: "تجاري", en: "Commercial",   icon: "🏢", spec: "High Load · 3-Phase · Battery Backup" },
+  { id: "agricultural",ar: "زراعي", en: "Agricultural", icon: "🌾", spec: "3-Phase · 400V Pump · No Batteries" },
 ];
 
-// ── Form ──────────────────────────────────────────────────────────────────────
+export const TAB_IMAGES: Record<Tab, string> = {
+  residential:  residentialImg,
+  commercial:   industrialImg,
+  agricultural: agriculturalImg,
+};
+
+// ── Interfaces ────────────────────────────────────────────────────────────────
+interface InverterSpecs {
+  maxPvVolts: number;
+  minMpptVolts: number;
+  maxMpptVolts: number;
+  maxMpptCurrent: number;
+  mpptCount: number;
+}
+
+interface PanelSpecs {
+  voc: number;
+  vmp: number;
+  imp: number;
+  isc: number;
+}
+
 interface Form {
   panelBrand: string; panelWattage: number;
   dayAmps: number; nightAmps: number; backupHours: number;
   effP: number; effI: number; effB: number;
   costPanels: number; costBatteries: number; costInverter: number; costInstall: number;
   savings: number;
+  invSpecs: InverterSpecs;
+  pnlSpecs: PanelSpecs;
 }
 
-const initForm = (): Form => ({
+interface Calc {
+  cap: number; panels: number; strings: number; pps: number;
+  batt: number; inv: number; ctrl: string;
+  total: number; annual: number; payback: number; roi: number;
+  dailyWh: number;
+}
+
+interface MpptDesign {
+  seriesPerString: number;
+  strings: number;
+  stringsPerMppt: number;
+  totalCurrent: number;
+  arrayVoc: number;
+  arrayVmp: number;
+  utilization: number;
+  warnings: string[];
+  score: number;
+}
+
+// ── Default Form ──────────────────────────────────────────────────────────────
+export const initForm = (): Form => ({
   panelBrand: "Longi", panelWattage: 620,
   dayAmps: 20, nightAmps: 10, backupHours: 3,
   effP: 80, effI: 80, effB: 80,
   costPanels: 0, costBatteries: 0, costInverter: 0, costInstall: 0,
   savings: 0,
+  invSpecs: { maxPvVolts: 500, minMpptVolts: 150, maxMpptVolts: 450, maxMpptCurrent: 18, mpptCount: 2 },
+  pnlSpecs: { voc: 53, vmp: 44, imp: 13.8, isc: 14.6 },
 });
 
-// ── Calculations ──────────────────────────────────────────────────────────────
-interface Calc {
-  cap: number; panels: number; strings: number; pps: number;
-  batt: number; inv: number; ctrl: string;
-  total: number; annual: number; payback: number; roi: number;
-}
-
-interface AdvancedConfig {
-  maxDcVoltage: number;
-  mpptMin: number;
-  mpptMax: number;
-  maxInputCurrentPerMppt: number;
-  panelVoc: number;
-  panelVmp: number;
-  tempCoeffVoc: number;
-  minAmbientTemp: number;
-  maxPanelTemp: number;
-}
-
-const initAdvanced = (): AdvancedConfig => ({
-  maxDcVoltage: 1100,
-  mpptMin: 180,
-  mpptMax: 850,
-  maxInputCurrentPerMppt: 26,
-  panelVoc: 49.5,
-  panelVmp: 41.6,
-  tempCoeffVoc: -0.28,
-  minAmbientTemp: 0,
-  maxPanelTemp: 70,
-});
-
-let logoDataUrlPromise: Promise<string> | null = null;
-
-function getLogoDataUrl() {
-  if (!logoDataUrlPromise) {
-    logoDataUrlPromise = fetch(akzLogo)
-      .then((res) => res.blob())
-      .then(
-        (blob) =>
-          new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result));
-            reader.onerror = () => reject(new Error("Failed to read logo file"));
-            reader.readAsDataURL(blob);
-          }),
-      );
-  }
-  return logoDataUrlPromise;
-}
-
-function optStrings(n: number) {
-  if (n <= 0) return { strings: 0, pps: 0 };
-  for (let s = 1; s <= n; s++) {
-    const p = Math.ceil(n / s);
-    if (p >= 10 && p <= 14) return { strings: s, pps: p };
-  }
-  let best = { strings: 1, pps: n }, bestD = Math.abs(n - 12);
-  for (let s = 2; s <= n; s++) {
-    const p = Math.ceil(n / s), d = Math.abs(p - 12);
-    if (d < bestD) { bestD = d; best = { strings: s, pps: p }; }
-  }
-  return best;
-}
-
-function getCtrl(panels: number, inv: number, tab: Tab) {
-  if (tab === "agricultural") return "Dual MPPT VFD Inverter (3-Phase Pump Drive)";
-  if (tab === "commercial")   return inv >= 20 ? "Multiple MPPT Controllers" : "Dual MPPT Inverter";
-  return panels > 12 ? "Dual MPPT Inverter" : "Single MPPT Inverter";
-}
-
-function runAdvanced(a: AdvancedConfig, pps: number) {
-  const deltaCold = Math.max(0, 25 - a.minAmbientTemp);
-  const deltaHot = Math.max(0, a.maxPanelTemp - 25);
-  const tc = Math.abs(a.tempCoeffVoc) / 100;
-
-  const vocAtCold = a.panelVoc * (1 + tc * deltaCold);
-  const vmpAtHot = a.panelVmp * (1 - tc * deltaHot);
-  const safeMaxByVoc = vocAtCold > 0 ? Math.floor(a.maxDcVoltage / vocAtCold) : 0;
-  const safeMinByMppt = vmpAtHot > 0 ? Math.ceil(a.mpptMin / vmpAtHot) : 0;
-  const safeMaxByMppt = vmpAtHot > 0 ? Math.floor(a.mpptMax / vmpAtHot) : 0;
-  const safeMin = Math.max(1, safeMinByMppt);
-  const safeMax = Math.max(0, Math.min(safeMaxByVoc, safeMaxByMppt));
-
-  const stringVocCold = pps * vocAtCold;
-  const stringVmpHot = pps * vmpAtHot;
-  const redWarning = stringVocCold > a.maxDcVoltage;
-  const yellowWarning = stringVmpHot < a.mpptMin;
-
-  return {
-    vocAtCold,
-    vmpAtHot,
-    safeMin,
-    safeMax,
-    stringVocCold,
-    stringVmpHot,
-    redWarning,
-    yellowWarning,
-  };
-}
-
-function drawArabicLineAsImage(doc: jsPDF, text: string, centerX: number, baselineY: number, fontSize = 10) {
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const padding = 14;
-  ctx.font = `${fontSize}px "Segoe UI", Tahoma, Arial`;
-  const textWidth = Math.ceil(ctx.measureText(text).width);
-  const width = Math.max(220, textWidth + padding * 2);
-  const height = Math.ceil(fontSize * 1.9);
-  canvas.width = width;
-  canvas.height = height;
-
-  const ctx2 = canvas.getContext("2d");
-  if (!ctx2) return;
-  ctx2.fillStyle = "rgba(0,0,0,0)";
-  ctx2.fillRect(0, 0, width, height);
-  ctx2.fillStyle = "#ffffff";
-  ctx2.font = `${fontSize}px "Segoe UI", Tahoma, Arial`;
-  ctx2.textAlign = "center";
-  ctx2.textBaseline = "middle";
-  ctx2.direction = "rtl";
-  ctx2.fillText(text, width / 2, height / 2 + 0.5);
-
-  const dataUrl = canvas.toDataURL("image/png");
-  const pdfW = width * 0.17;
-  const pdfH = height * 0.17;
-  doc.addImage(dataUrl, "PNG", centerX - pdfW / 2, baselineY - pdfH + 1.8, pdfW, pdfH);
-}
-
-function run(f: Form, tab: Tab): Calc {
-  const ep = f.effP / 100, ei = f.effI / 100, eb = f.effB / 100;
-  const cap    = tab === "agricultural"
+// ── Core Calculation ──────────────────────────────────────────────────────────
+export function run(f: Form, tab: Tab): Calc {
+  const ep = f.effP / 100, ei = f.effI / 100;
+  const cap = tab === "agricultural"
     ? (f.dayAmps * V3 * SQ3 * PF) / 1000
     : (f.dayAmps * V1 * PF) / 1000;
-  const denom  = f.panelWattage * ep * ei;
+
+  const dailyWh = cap * 1000 * (tab === "agricultural" ? 8 : 6);
+  const denom = f.panelWattage * ep * ei;
   const panels = denom > 0 ? Math.ceil((cap * 1000) / denom) : 0;
-  const { strings, pps } = optStrings(panels);
-  const batt   = tab === "agricultural" || f.nightAmps <= 0 ? 0
-    : Math.ceil((f.nightAmps * V1 * f.backupHours) / (BKWH * DOD * eb * 1000));
+
+  let strings = 1, pps = panels;
+  for (let s = 1; s <= panels; s++) {
+    const p = Math.ceil(panels / s);
+    if (p >= 10 && p <= 14) { strings = s; pps = p; break; }
+  }
+  if (pps < 10 || pps > 14) {
+    let bestD = Math.abs(panels - 12);
+    for (let s = 2; s <= panels; s++) {
+      const p = Math.ceil(panels / s), d = Math.abs(p - 12);
+      if (d < bestD) { bestD = d; strings = s; pps = p; }
+    }
+  }
+
+  const batt = tab === "agricultural" || f.nightAmps <= 0 ? 0
+    : Math.ceil((f.nightAmps * V1 * f.backupHours) / (BKWH * 1000 * DOD));
   const minInv = cap * SRG;
-  const inv    = INVERTER_SIZES.find((s) => s >= minInv) ?? INVERTER_SIZES[INVERTER_SIZES.length - 1];
-  const ctrl   = getCtrl(panels, inv, tab);
-  const battC  = tab === "agricultural" ? 0 : f.costBatteries;
-  const total  = f.costPanels + battC + f.costInverter + f.costInstall;
+  const inv = INVERTER_SIZES.find((s) => s >= minInv) ?? INVERTER_SIZES[INVERTER_SIZES.length - 1];
+  const ctrl = tab === "agricultural" ? "Dual MPPT VFD Inverter (3-Phase Pump Drive)"
+    : tab === "commercial" ? inv >= 20 ? "Multiple MPPT Controllers" : "Dual MPPT Inverter"
+    : panels > 12 ? "Dual MPPT Inverter" : "Single MPPT Inverter";
+
+  const battC = tab === "agricultural" ? 0 : f.costBatteries;
+  const total = f.costPanels + battC + f.costInverter + f.costInstall;
   const annual = f.savings * 12;
   const payback = annual > 0 ? total / annual : 0;
-  const roi     = total > 0 && annual > 0 ? (annual / total) * 100 : 0;
-  return { cap, panels, strings, pps, batt, inv, ctrl, total, annual, payback, roi };
+  const roi = total > 0 && annual > 0 ? (annual / total) * 100 : 0;
+  return { cap, panels, strings, pps, batt, inv, ctrl, total, annual, payback, roi, dailyWh };
 }
 
-// ── PDF ───────────────────────────────────────────────────────────────────────
-async function exportPDF(
-  f: Form,
-  r: Calc,
-  tab: Tab,
-  advancedConfig?: AdvancedConfig,
-  advancedResult?: ReturnType<typeof runAdvanced>,
-) {
+// ── MPPT Auto-Design Engine ───────────────────────────────────────────────────
+export function calcMppt(f: Form, panels: number): MpptDesign {
+  const inv = f.invSpecs;
+  const pnl = f.pnlSpecs;
+  const warnings: string[] = [];
+  const maxSeries = Math.floor(inv.maxPvVolts / (pnl.voc * 1.15));
+  const minSeries = Math.ceil(inv.minMpptVolts / pnl.vmp);
+
+  let best: { s: number; strings: number; stringsPerMppt: number; current: number; util: number } | null = null;
+  for (let s = minSeries; s <= maxSeries; s++) {
+    const totalStrings = Math.floor(panels / s);
+    if (totalStrings < 1) continue;
+    const stringsPerMppt = Math.ceil(totalStrings / inv.mpptCount);
+    const current = stringsPerMppt * pnl.imp;
+    if (current <= inv.maxMpptCurrent) {
+      const util = (s * totalStrings) / panels;
+      if (!best || util > best.util) best = { s, strings: totalStrings, stringsPerMppt, current, util };
+    }
+  }
+
+  if (!best) {
+    warnings.push("⚠ No valid MPPT configuration found — check inverter specs");
+    return { seriesPerString: 0, strings: 0, stringsPerMppt: 0, totalCurrent: 0, arrayVoc: 0, arrayVmp: 0, utilization: 0, warnings, score: 0 };
+  }
+
+  const arrayVoc = best.s * pnl.voc;
+  const arrayVmp = best.s * pnl.vmp;
+  if (arrayVoc > inv.maxPvVolts) warnings.push("⚠ Array Voc exceeds inverter max PV voltage");
+  if (arrayVmp > inv.maxMpptVolts) warnings.push("⚠ Array Vmp exceeds MPPT max voltage");
+  if (arrayVmp < inv.minMpptVolts) warnings.push("⚠ Array Vmp below MPPT min voltage");
+  if (best.current > inv.maxMpptCurrent) warnings.push("⚠ MPPT current overload");
+
+  const score = Math.max(0, 100 - warnings.length * 15 - Math.abs(best.s - 12) * 2);
+  return { seriesPerString: best.s, strings: best.strings, stringsPerMppt: best.stringsPerMppt,
+    totalCurrent: best.current, arrayVoc, arrayVmp, utilization: best.util, warnings, score };
+}
+
+// ── PDF Export ────────────────────────────────────────────────────────────────
+export async function exportPDF(f: Form, r: Calc, mppt: MpptDesign, tab: Tab) {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
-  const generatedAt = new Date().toLocaleString("en-GB");
   const ML = 18, CW = W - ML * 2;
   const isA = tab === "agricultural";
-  const tabLabel = tab === "residential" ? "Residential - 1-Phase 230V"
-    : tab === "commercial" ? "Commercial - High Load 3-Phase"
-    : "Agricultural - 3-Phase 400V Pump";
+  const tabLabel = tab === "residential" ? "Residential — 1-Phase 230V"
+    : tab === "commercial" ? "Commercial — High Load 3-Phase"
+    : "Agricultural — 3-Phase 400V Pump";
 
-  // Header
-  doc.setFillColor(0, 31, 63);
-  doc.rect(0, 0, W, 48, "F");
-  doc.setFillColor(245, 158, 11);
-  doc.rect(0, 45, W, 3, "F");
+  // ── Header background ──
+  doc.setFillColor(255, 215, 0); doc.rect(0, 0, W, 52, "F");
+  doc.setFillColor(0, 31, 63); doc.rect(0, 49, W, 3, "F");
+
+  // ── Logo ──
   try {
-    const logoDataUrl = await getLogoDataUrl();
-    doc.addImage(logoDataUrl, "PNG", ML, 7, 22, 22);
-  } catch {
-    // Keep PDF generation working even if logo loading fails.
-  }
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(20);
-  doc.text("IRAQ SUN POWER", W / 2, 14, { align: "center" });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-  doc.text("Solar Energy Solutions - Technical Proposal", W / 2, 23, { align: "center" });
-  drawArabicLineAsImage(doc, "طاقة شمس العراق", W / 2, 28.2, 11);
-  doc.setFontSize(9);
-  doc.text("System Type: " + tabLabel, W / 2, 32, { align: "center" });
-  doc.text("Date: " + new Date().toLocaleDateString("en-GB"), W / 2, 39, { align: "center" });
+    const logoImg = new Image();
+    logoImg.src = akzLogo;
+    await new Promise<void>((resolve) => {
+      if (logoImg.complete) { resolve(); return; }
+      logoImg.onload = () => resolve();
+      logoImg.onerror = () => resolve();
+      setTimeout(resolve, 2000);
+    });
+    doc.addImage(logoImg, "PNG", ML, 6, 28, 28);
+  } catch (_) { /* skip logo if it fails */ }
 
-  let y = 60;
+  // ── Company name ──
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+  doc.text("AKZ & AL-KHWARIZMI", ML + 33, 18);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+  doc.setTextColor(245, 158, 11);
+  doc.text("Solar Energy Solutions \u2014 Technical Proposal", ML + 33, 26);
 
+  // ── System & date (right-aligned) ──
+  doc.setTextColor(200, 215, 230); doc.setFontSize(8);
+  doc.text("System: " + tabLabel, W - ML, 35, { align: "right" });
+  doc.text("Date: " + new Date().toLocaleDateString("en-GB"), W - ML, 43, { align: "right" });
+
+  let y = 65;
   const sec = (title: string) => {
+    if (y > H - 40) { doc.addPage(); y = 20; }
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(0, 31, 63);
     doc.text(title, ML, y); y += 2;
     doc.setDrawColor(0, 31, 63); doc.setLineWidth(0.4);
     doc.line(ML, y, ML + CW, y); y += 7;
   };
 
-  const row = (label: string, value: string, shade: boolean) => {
-    if (shade) { doc.setFillColor(236, 243, 255); doc.rect(ML, y - 4.5, CW, 7, "F"); }
-    doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(0, 31, 63);
-    doc.text(label + ":", ML + 2, y);
-    doc.setFont("helvetica", "normal"); doc.setTextColor(40, 40, 40);
-    doc.text(value, ML + 84, y); y += 8;
-  };
-
-  const totalRow = (label: string, value: string) => {
-    doc.setFillColor(0, 31, 63); doc.rect(ML, y - 4.5, CW, 8, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(255, 255, 255);
-    doc.text(label + ":", ML + 2, y); doc.text(value, ML + 84, y); y += 12;
-  };
-
-  const ensureAppendixPage = (requiredSpace = 88) => {
-    if (y + requiredSpace <= H - 20) return;
-    doc.addPage("a4", "portrait");
-    y = 24;
-    doc.setFillColor(0, 31, 63);
-    doc.rect(0, 0, W, 16, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text("AKZ Sun Energy - Iraq | Installer Appendix", W / 2, 10.5, { align: "center" });
-    doc.setTextColor(40, 40, 40);
-  };
-
-  sec("1. System Configuration");
-  row("Panel Brand",         f.panelBrand, false);
-  row("Panel Wattage",       f.panelWattage + " W", true);
-  row("Panel Efficiency",    f.effP + "%", false);
-  row("Inverter Efficiency", f.effI + "%", true);
-  if (!isA) row("Battery Efficiency", f.effB + "%", false);
-  row("Day Load",            f.dayAmps + " A", !isA);
-  if (!isA) {
-    row("Night Load",   f.nightAmps + " A", false);
-    row("Backup Hours", f.backupHours + " h", true);
-  }
+  sec("1. Technical System Overview");
+  doc.setFontSize(9); doc.setTextColor(50, 50, 50); doc.setFont("helvetica", "normal");
+  const specs: [string, string][] = [
+    ["System Capacity", r.cap.toFixed(2) + " kW"],
+    ["Daily Energy Estimate", (r.dailyWh / 1000).toFixed(2) + " kWh/day"],
+    ["Total Solar Panels", r.panels + " panels (" + f.panelBrand + " · " + f.panelWattage + "W)"],
+    ["String Configuration", r.strings > 0 ? r.strings + " strings × " + r.pps + " panels" : "—"],
+    ["Inverter Size", r.inv + " kW (min: " + (r.cap * SRG).toFixed(2) + " kW)"],
+    ["Controller", r.ctrl],
+    ...(!isA ? [["Battery Bank (" + f.backupHours + "h)", r.batt + " × 5.12kWh LiFePO4 (DoD 80% → 4.1kWh usable)"] as [string, string]] : []),
+  ];
+  specs.forEach(([label, value]) => {
+    doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+    doc.text(label + ":", ML, y);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(30, 30, 30);
+    doc.text(value, ML + 60, y); y += 6;
+  });
   y += 4;
 
-  sec("2. Technical Results");
-  row("System Capacity",      r.cap.toFixed(2) + " kW", false);
-  row("Total Panels",         r.panels + " panels", true);
-  row("String Configuration", r.strings + " strings x " + r.pps + " panels / string", false);
-  if (!isA) row("Battery Bank", r.batt + " x 5.12 kWh (LiFePO4)", true);
-  row("Inverter Size (1.5x)", r.inv + " kW", isA);
-  row("Controller Rec.",      r.ctrl, !isA);
-  y += 4;
-
-  sec("3. Cost Breakdown");
-  row("Panels Cost",   "$ " + f.costPanels.toLocaleString("en-US"), false);
-  if (!isA) row("Batteries Cost", "$ " + f.costBatteries.toLocaleString("en-US"), true);
-  row("Inverter Cost", "$ " + f.costInverter.toLocaleString("en-US"), isA);
-  row("Installation",  "$ " + f.costInstall.toLocaleString("en-US"), !isA);
-  totalRow("TOTAL SYSTEM COST", "$ " + r.total.toLocaleString("en-US"));
-
-  sec("4. Financial Analysis");
-  row("Monthly Savings", "$ " + f.savings.toLocaleString("en-US"), false);
-  row("Annual Savings",  "$ " + r.annual.toLocaleString("en-US"), true);
-  row("Payback Period",  r.payback > 0 ? r.payback.toFixed(1) + " years" : "N/A", false);
-  row("Annual ROI",      r.roi > 0 ? r.roi.toFixed(1) + "%" : "N/A", true);
-  y += 4;
-
-  sec("5. Engineering Formulas");
-  doc.setFont("courier", "normal"); doc.setFontSize(8); doc.setTextColor(60, 60, 60);
-  if (isA) {
-    doc.text("Capacity  = (Amps x 400V x 1.732 x 0.85 PF) / 1000", ML + 2, y); y += 5;
-  } else {
-    doc.text("Capacity  = (Day Amps x 230V x 0.85 PF) / 1000", ML + 2, y); y += 5;
-    doc.text("Batteries = (Night Amps x 230V x Hours) / (5.12kWh x 0.8 DoD x effB)", ML + 2, y); y += 5;
-  }
-  doc.text("Panels    = (Capacity x 1000) / (Wattage x effP x effI)", ML + 2, y); y += 5;
-  doc.text("Inverter  = Next standard size >= Capacity x 1.5 (Iraq surge + heat)", ML + 2, y);
-
-  if (advancedConfig && advancedResult) {
-    ensureAppendixPage(100);
-    y += 8;
-    sec("6. Installer Appendix (Advanced String Configuration)");
-    row("Max DC Input Voltage", advancedConfig.maxDcVoltage + " V", false);
-    row("MPPT Voltage Range", advancedConfig.mpptMin + " - " + advancedConfig.mpptMax + " V", true);
-    row("Max Input Current / MPPT", advancedConfig.maxInputCurrentPerMppt + " A", false);
-    row("Panel Voc / Vmp", advancedConfig.panelVoc.toFixed(2) + " V / " + advancedConfig.panelVmp.toFixed(2) + " V", true);
-    row("Temp Coeff. Voc", advancedConfig.tempCoeffVoc.toFixed(2) + " %/C", false);
-    row("Ambient Check Temps", advancedConfig.minAmbientTemp + "C / " + advancedConfig.maxPanelTemp + "C", true);
-    const safeRangeText = advancedResult.safeMax >= advancedResult.safeMin
-      ? `${advancedResult.safeMin} - ${advancedResult.safeMax} panels/string`
-      : "Out of Range";
-    row("Safe Panels per String", safeRangeText, false);
-    row("Design Voc @ Cold", advancedResult.stringVocCold.toFixed(1) + " V", true);
-    row("Design Vmp @ Hot", advancedResult.stringVmpHot.toFixed(1) + " V", false);
-    if (advancedResult.redWarning) {
-      doc.setTextColor(180, 0, 0);
-      doc.setFont("helvetica", "bold");
-      doc.text("Warning: Voc exceeds inverter Max DC at low temperature.", ML + 2, y);
-      y += 7;
-      doc.setTextColor(40, 40, 40);
-      doc.setFont("helvetica", "normal");
-    } else if (advancedResult.yellowWarning) {
-      doc.setTextColor(180, 120, 0);
-      doc.setFont("helvetica", "bold");
-      doc.text("Warning: Vmp drops below inverter MPPT minimum at high temperature.", ML + 2, y);
-      y += 7;
-      doc.setTextColor(40, 40, 40);
-      doc.setFont("helvetica", "normal");
+  if (mppt.seriesPerString > 0) {
+    sec("2. MPPT Auto-Design Analysis");
+    doc.setFontSize(9); doc.setFont("helvetica", "normal"); doc.setTextColor(50, 50, 50);
+    const rows: [string, string][] = [
+      ["Panels per String (Series)", String(mppt.seriesPerString)],
+      ["Total Strings (Parallel)", String(mppt.strings)],
+      ["Strings per MPPT Input", String(mppt.stringsPerMppt)],
+      ["Array Voc", mppt.arrayVoc.toFixed(1) + " V"],
+      ["Array Vmp", mppt.arrayVmp.toFixed(1) + " V"],
+      ["Total MPPT Current", mppt.totalCurrent.toFixed(1) + " A"],
+      ["Panel Utilization", (mppt.utilization * 100).toFixed(1) + "%"],
+      ["Design Confidence Score", mppt.score + " / 100"],
+    ];
+    rows.forEach(([label, value]) => {
+      doc.setFont("helvetica", "bold"); doc.setTextColor(80, 80, 80);
+      doc.text(label + ":", ML, y);
+      doc.setFont("helvetica", "normal"); doc.setTextColor(30, 30, 30);
+      doc.text(value, ML + 75, y); y += 6;
+    });
+    if (mppt.warnings.length > 0) {
+      y += 2; doc.setFont("helvetica", "bold"); doc.setTextColor(180, 50, 0);
+      mppt.warnings.forEach((w) => { doc.text(w, ML, y); y += 5.5; });
     }
+    y += 4;
   }
 
-  const addPageFooter = (pageIndex: number, pagesCount: number) => {
-    doc.setFillColor(0, 31, 63); doc.rect(0, H - 24, W, 24, "F");
-    doc.setFillColor(245, 158, 11); doc.rect(0, H - 24, W, 2.5, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "italic"); doc.setFontSize(8);
-    doc.text("Approved by Eng. Riyadh Nouri", W / 2, H - 16.5, { align: "center" });
-    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5);
-    doc.text("Baghdad-Sinaa Street Near Univ. of Technology", W / 2, H - 12.2, { align: "center" });
-    drawArabicLineAsImage(doc, "بغداد شارع الصناعة قرب الجامعة التكنلوجية", W / 2, H - 8.1, 9);
-    doc.text(`Generated: ${generatedAt} | Page ${pageIndex} of ${pagesCount}`, W / 2, H - 3.6, { align: "center" });
-  };
+  const pricingNum = mppt.seriesPerString > 0 ? "3" : "2";
+  sec(pricingNum + ". Component Breakdown & Pricing");
+  const tableData: string[][] = [
+    ["Solar Panels (" + f.panelBrand + " · " + f.panelWattage + "W)", "1 Set", "$ " + f.costPanels.toLocaleString(), "$ " + f.costPanels.toLocaleString()],
+    ["Inverter Unit (" + r.inv + " kW)", "1 Unit", "$ " + f.costInverter.toLocaleString(), "$ " + f.costInverter.toLocaleString()],
+    ["Installation & Logistics", "1 Job", "$ " + f.costInstall.toLocaleString(), "$ " + f.costInstall.toLocaleString()],
+  ];
+  if (!isA) tableData.push(["Battery Bank (" + r.batt + " units LiFePO4)", "1 Set", "$ " + f.costBatteries.toLocaleString(), "$ " + f.costBatteries.toLocaleString()]);
+  autoTable(doc, {
+    startY: y, head: [["Product / Service", "Qty", "Unit Price", "Total"]], body: tableData,
+    foot: [["", "", "TOTAL SYSTEM COST", "$ " + r.total.toLocaleString()]],
+    theme: "striped",
+    headStyles: { fillColor: [0, 31, 63], fontSize: 9, fontStyle: "bold" },
+    footStyles: { fillColor: [245, 158, 11], textColor: [0, 0, 0], fontStyle: "bold", fontSize: 9 },
+    bodyStyles: { fontSize: 8.5 },
+    columnStyles: { 2: { halign: "right" }, 3: { halign: "right" } },
+    margin: { left: ML, right: ML },
+  });
+  y = (doc as any).lastAutoTable.finalY + 12;
 
-  const pages = doc.getNumberOfPages();
-  for (let pageIndex = 1; pageIndex <= pages; pageIndex++) {
-    doc.setPage(pageIndex);
-    addPageFooter(pageIndex, pages);
+  if (r.annual > 0) {
+    const finNum = mppt.seriesPerString > 0 ? "4" : "3";
+    sec(finNum + ". Financial Analysis");
+    autoTable(doc, {
+      startY: y,
+      body: [
+        ["Monthly Savings", "$ " + f.savings.toLocaleString()],
+        ["Annual Savings", "$ " + r.annual.toLocaleString()],
+        ["Total Investment", "$ " + r.total.toLocaleString()],
+        ["Payback Period", r.payback.toFixed(1) + " years"],
+        ["Annual ROI", r.roi.toFixed(1) + "%"],
+      ],
+      theme: "plain", bodyStyles: { fontSize: 9 },
+      columnStyles: { 0: { fontStyle: "bold", textColor: [0, 31, 63] }, 1: { halign: "right" } },
+      margin: { left: ML, right: ML },
+    });
   }
 
-  doc.save("IraqSunPower_Proposal_" + tab + ".pdf");
+  const totalPages = (doc as any).internal.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    // Footer bar
+    doc.setFillColor(0, 31, 63); doc.rect(0, H - 18, W, 18, "F");
+    doc.setFillColor(245, 158, 11); doc.rect(0, H - 18, W, 1.5, "F");
+    // Company name
+    doc.setTextColor(255, 255, 255); doc.setFontSize(8); doc.setFont("helvetica", "bold");
+    doc.text("AKZ & AL-KHWARIZMI  |  Solar Energy Solutions", ML, H - 11);
+    // Designer credit
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7);
+    doc.setTextColor(245, 158, 11);
+    doc.text("Designed by Eng. Riyadh Noori", ML, H - 5);
+    // Page number
+    doc.setTextColor(180, 200, 220); doc.setFontSize(7.5);
+    doc.text("Page " + i + " / " + totalPages, W - ML, H - 5, { align: "right" });
+  }
+  doc.save(`AKZ_Solar_Proposal_${tab}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }
 
-const HERO_BACKGROUNDS: Record<Tab, string> = {
-  residential: "/src/assets/Residential.png",
-  commercial: "/src/assets/Industrial.png",
-  agricultural: "/src/assets/Agricultural.png",
-};
-
-function HeroSection({ tab, activeTab }: { tab: Tab; activeTab: (typeof TABS)[number] }) {
-  return (
-    <div
-      className="relative w-full overflow-hidden rounded-2xl shadow-sm border border-slate-300 bg-slate-900 min-h-[280px] sm:min-h-[320px] md:min-h-[360px] bg-cover bg-center bg-no-repeat"
-      style={{ backgroundImage: `url(${HERO_BACKGROUNDS[tab]})` }}
-    >
-      <div className="absolute inset-0 bg-black/45" />
-      <div className="relative z-10 p-5 sm:p-8 md:p-10 flex flex-col justify-end h-full">
-        <p className="text-[11px] sm:text-xs font-bold uppercase tracking-[0.2em] text-white/85 mb-2">
-          AKZ Iraq Sun Energy
-        </p>
-        <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-white leading-tight">
-          {activeTab.en} Solar Calculator
-        </h1>
-        <p className="mt-2 text-sm sm:text-base text-white/85 max-w-2xl">
-          {activeTab.spec}
-        </p>
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <a
-            href="#system-inputs"
-            className="inline-flex items-center gap-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-sm sm:text-base px-5 py-2.5 transition-colors shadow-lg"
-          >
-            Start System Design
-            <span aria-hidden>→</span>
-          </a>
-          <a
-            href="#financial-pdf"
-            className="inline-flex items-center gap-2 rounded-lg border border-white/35 bg-white/10 hover:bg-white/20 text-white font-bold text-sm sm:text-base px-5 py-2.5 transition-colors"
-          >
-            Go to PDF Report
-            <span aria-hidden>↓</span>
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── UI Primitives ─────────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 function FieldLabel({ text, hint }: { text: string; hint?: string }) {
+  const tip = AR_TIPS[text] ?? "";
   return (
-    <div className="mb-1.5">
-      <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: NAVY }}>{text}</p>
-      {hint && <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p>}
-    </div>
-  );
-}
-
-function NumInput({ value, onChange, min = 0, step = 1, unit }: {
-  value: number; onChange: (v: number) => void;
-  min?: number; step?: number; unit?: string;
-}) {
-  return (
-    <div className="relative">
-      <input type="number" value={value} min={min} step={step}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 transition"
-        style={{ paddingRight: unit ? "2.8rem" : "0.75rem" }}
-        onFocus={(e) => e.target.style.borderColor = NAVY}
-        onBlur={(e) => e.target.style.borderColor = "#e2e8f0"} />
-      {unit && (
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">{unit}</span>
+    <div className="mb-1.5 flex items-start gap-1.5 group/label">
+      <div className="flex-1">
+        <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: NAVY }}>{text}</p>
+        {hint && <p className="text-[10px] text-slate-400 mt-0.5">{hint}</p>}
+      </div>
+      {tip && (
+        <div className="relative mt-0.5 shrink-0">
+          <span className="flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-black cursor-help select-none"
+            style={{ background: "#f59e0b22", color: "#f59e0b", border: "1px solid #f59e0b55" }}
+            title="">?</span>
+        </div>
       )}
     </div>
   );
 }
 
-function SelInput({ value, onChange, opts }: { value: string; onChange: (v: string) => void; opts: string[] }) {
+function NumInput({ value, onChange, min, step, unit, tipKey }: {
+  value: number; onChange: (v: number) => void; min: number; step: number; unit: string; tipKey?: string;
+}) {
+  const tip = tipKey ? (AR_TIPS[tipKey] ?? "") : "";
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
-      className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-800 bg-white focus:outline-none transition"
-      onFocus={(e) => e.target.style.borderColor = NAVY}
-      onBlur={(e) => e.target.style.borderColor = "#e2e8f0"}>
-      {opts.map((o) => <option key={o} value={o}>{o}</option>)}
-    </select>
+    <Tooltip text={tip}>
+      <div className="relative">
+        <input type="number" value={value} min={min} step={step}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full border border-slate-200 rounded-lg px-3 py-2.5 pr-10 text-sm font-semibold text-slate-800 bg-white focus:outline-none transition"
+          onFocus={(e) => (e.target.style.borderColor = NAVY)}
+          onBlur={(e) => (e.target.style.borderColor = "#e2e8f0")}
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">{unit}</span>
+      </div>
+    </Tooltip>
+  );
+}
+
+function SelInput({ value, onChange, opts, tipKey }: { value: string; onChange: (v: string) => void; opts: string[]; tipKey?: string }) {
+  const tip = tipKey ? (AR_TIPS[tipKey] ?? "") : "";
+  return (
+    <Tooltip text={tip}>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-800 bg-white focus:outline-none transition"
+        onFocus={(e) => (e.target.style.borderColor = NAVY)}
+        onBlur={(e) => (e.target.style.borderColor = "#e2e8f0")}
+      >
+        {opts.map((o) => <option key={o} value={o}>{o}</option>)}
+      </select>
+    </Tooltip>
   );
 }
 
 function Slider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  const tip = AR_TIPS[label] ?? "";
   return (
-    <div>
-      <div className="flex justify-between items-center mb-2">
-        <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: NAVY }}>{label}</p>
-        <span className="text-xs font-extrabold text-white px-2.5 py-0.5 rounded-full"
-          style={{ background: NAVY }}>{value}%</span>
+    <Tooltip text={tip}>
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <p className="text-xs font-extrabold uppercase tracking-wide" style={{ color: NAVY }}>{label}</p>
+          <span className="text-xs font-extrabold text-white px-2.5 py-0.5 rounded-full" style={{ background: NAVY }}>{value}%</span>
+        </div>
+        <input type="range" min={50} max={100} value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full h-1.5 rounded-full cursor-pointer" style={{ accentColor: NAVY }} />
+        <div className="flex justify-between text-[10px] text-slate-300 mt-1"><span>50%</span><span>100%</span></div>
       </div>
-      <input type="range" min={50} max={100} value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-1.5 rounded-full cursor-pointer" style={{ accentColor: NAVY }} />
-      <div className="flex justify-between text-[10px] text-slate-300 mt-1"><span>50%</span><span>100%</span></div>
-    </div>
+    </Tooltip>
   );
 }
 
@@ -481,15 +482,13 @@ function Card({ title, badge, children }: { title: string; badge?: string; child
 }
 
 function StatBox({ label, value, sub, primary }: { label: string; value: string; sub?: string; primary?: boolean }) {
-  if (primary) {
-    return (
-      <div className="rounded-xl px-4 py-3 col-span-2" style={{ background: NAVY }}>
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-0.5">{label}</p>
-        <p className="text-2xl font-extrabold text-white">{value}</p>
-        {sub && <p className="text-xs text-white/40 mt-0.5">{sub}</p>}
-      </div>
-    );
-  }
+  if (primary) return (
+    <div className="rounded-xl px-4 py-3 col-span-2" style={{ background: NAVY }}>
+      <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-0.5">{label}</p>
+      <p className="text-2xl font-extrabold text-white">{value}</p>
+      {sub && <p className="text-xs text-white/40 mt-0.5">{sub}</p>}
+    </div>
+  );
   return (
     <div className="rounded-xl border border-slate-200 px-4 py-3 bg-white">
       <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">{label}</p>
@@ -507,96 +506,411 @@ function CostBar({ label, amount, pct }: { label: string; amount: number; pct: n
         <span className="text-xs font-extrabold" style={{ color: NAVY }}>${amount.toLocaleString("en-US")}</span>
       </div>
       <div className="w-full bg-slate-100 rounded-full h-1.5">
-        <div className="h-1.5 rounded-full transition-all" style={{ width: Math.min(100, pct) + "%", background: NAVY }} />
+        <div className="h-1.5 rounded-full transition-all duration-500" style={{ width: Math.min(100, pct) + "%", background: NAVY }} />
       </div>
     </div>
   );
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
+// ── System Diagram with Real Background Image ─────────────────────────────────
+function DiagramPlaceholder({ tab }: { tab: Tab }) {
+  const flows: Record<Tab, { steps: string[]; color: string; note: string; label: string }> = {
+    residential: {
+      color: "#3b82f6", label: "1-Phase 230V",
+      steps: ["☀️ Solar Panels", "⚡ MPPT Inverter", "🔋 Battery Bank", "🏠 Home (230V)"],
+      note: "Battery backup included for night & grid-outage",
+    },
+    commercial: {
+      color: "#8b5cf6", label: "3-Phase High Load",
+      steps: ["☀️ Solar Array", "⚡ 3-Phase Inverter", "🔋 Battery Storage", "🏢 Commercial Load"],
+      note: "High-load 3-phase system with battery backup",
+    },
+    agricultural: {
+      color: "#10b981", label: "3-Phase 400V Pump",
+      steps: ["☀️ Solar Panels", "⚡ VFD Inverter", "💧 3-Phase Pump (400V)", "🌾 Irrigation"],
+      note: "Direct pump drive via VFD — no battery storage",
+    },
+  };
+  const d = flows[tab];
+  return (
+    <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="relative h-52 md:h-64">
+        <img src={TAB_IMAGES[tab]} alt={tab + " solar system"}
+          className="absolute inset-0 w-full h-full object-cover transition-all duration-700" />
+        <div className="absolute inset-0"
+          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,31,63,0.85) 100%)" }} />
+        <div className="relative z-10 h-full flex flex-col justify-between p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white font-black text-base tracking-tight">System Diagram</p>
+              <p className="text-white/50 text-[10px] font-bold uppercase tracking-widest mt-0.5">{d.label}</p>
+            </div>
+            <span className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full border border-white/20 text-white/60">schematic</span>
+          </div>
+          <div className="flex items-center justify-center gap-1 flex-wrap">
+            {d.steps.map((step, i) => (
+              <div key={step} className="flex items-center gap-1">
+                <div className="text-xs font-bold px-3 py-1.5 rounded-xl text-center whitespace-nowrap backdrop-blur-sm"
+                  style={{ border: "1.5px solid " + d.color + "99", color: "#fff", background: d.color + "33" }}>
+                  {step}
+                </div>
+                {i < d.steps.length - 1 && <span className="text-white/40 font-bold">→</span>}
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-[10px] text-white/50 font-medium">{d.note}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── MPPT Panel ────────────────────────────────────────────────────────────────
+function MpptPanel({ mppt, mpptCount }: { mppt: MpptDesign; mpptCount: number }) {
+  if (mppt.seriesPerString === 0) return (
+    <div className="rounded-xl border border-red-200 px-4 py-3 bg-red-50">
+      <p className="text-sm font-bold text-red-700">No valid MPPT configuration — check inverter specs</p>
+    </div>
+  );
+  const scoreColor = mppt.score >= 80 ? "#10b981" : mppt.score >= 60 ? "#f59e0b" : "#ef4444";
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-4 rounded-xl px-4 py-3 border border-slate-200 bg-slate-50">
+        <div className="text-center min-w-[64px]">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Confidence</p>
+          <p className="text-3xl font-black" style={{ color: scoreColor }}>{mppt.score}</p>
+          <p className="text-[10px] text-slate-400">/ 100</p>
+        </div>
+        <div className="flex-1 grid grid-cols-2 gap-x-6 gap-y-1.5">
+          {[
+            ["Panels/String", mppt.seriesPerString],
+            ["Total Strings", mppt.strings],
+            ["Strings/MPPT", mppt.stringsPerMppt],
+            ["Array Voc", mppt.arrayVoc.toFixed(0) + " V"],
+            ["Array Vmp", mppt.arrayVmp.toFixed(0) + " V"],
+            ["MPPT Current", mppt.totalCurrent.toFixed(1) + " A"],
+            ["Utilization", (mppt.utilization * 100).toFixed(0) + "%"],
+          ].map(([l, v]) => (
+            <div key={l as string} className="flex justify-between gap-2 text-xs">
+              <span className="text-slate-400 font-bold">{l}</span>
+              <span className="font-extrabold" style={{ color: NAVY }}>{v}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">MPPT String Layout</p>
+        {Array.from({ length: mpptCount }).map((_, mi) => (
+          <div key={mi} className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-slate-400 w-14 shrink-0">MPPT {mi + 1}</span>
+            <div className="flex flex-wrap gap-1">
+              {Array.from({ length: mppt.stringsPerMppt }).map((_, si) => (
+                <div key={si} className="flex gap-0.5">
+                  {Array.from({ length: Math.min(mppt.seriesPerString, 20) }).map((_, pi) => (
+                    <div key={pi} className="w-3 h-4 rounded-sm border border-amber-400"
+                      style={{ background: AMBER + "55" }} />
+                  ))}
+                  {si < mppt.stringsPerMppt - 1 && <div className="w-px bg-slate-200 mx-0.5" />}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      {mppt.warnings.length > 0 && (
+        <div className="space-y-1.5">
+          {mppt.warnings.map((w, i) => (
+            <div key={i} className="text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{w}</div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── ReadMe Modal ──────────────────────────────────────────────────────────────
+function ReadMeModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between px-6 py-4 rounded-t-3xl border-b border-slate-100"
+          style={{ background: NAVY }}>
+          <div>
+            <p className="text-white font-black text-lg">📖 اقرأني — دليل الاستخدام</p>
+            <p className="text-white/50 text-xs mt-0.5">SolarDesigner · AKZ Iraq Solar</p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition text-xl font-bold">×</button>
+        </div>
+        <div className="p-6 space-y-5" dir="rtl" style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
+
+          <section className="space-y-2">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>🎯 ما هو هذا البرنامج؟</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              SolarDesigner هو أداة هندسية متخصصة لتصميم منظومات الطاقة الشمسية الكهروضوئية (PV).
+              يساعدك على حساب حجم المنظومة المطلوبة، وعدد الألواح والبطاريات والإنفرتر،
+              وتقدير التكاليف وفترة استرداد الاستثمار، ثم تصدير تقرير PDF احترافي جاهز للعرض على العميل.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>📋 خطوات الاستخدام</h3>
+            {[
+              ["١", "اختر نوع المنظومة", "سكني (1-Phase 230V) أو تجاري (3-Phase) أو زراعي (ضخ مياه 400V)"],
+              ["٢", "أدخل بيانات الحمل", "التيار النهاري بالأمبير، وللسكني والتجاري أضف الحمل الليلي وساعات النسخ الاحتياطي"],
+              ["٣", "اضبط كفاءة المكونات", "القيم الافتراضية 80% مناسبة لمعظم الحالات"],
+              ["٤", "أدخل التكاليف", "أسعار الألواح والبطاريات والإنفرتر والتركيب بالدولار"],
+              ["٥", "أدخل التوفير الشهري", "لحساب فترة الاسترداد والعائد على الاستثمار"],
+              ["٦", "صدّر التقرير", "اضغط زر تحميل التقرير للحصول على PDF احترافي جاهز للعرض"],
+            ].map(([num, title, desc]) => (
+              <div key={num as string} className="flex gap-3">
+                <span className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-black"
+                  style={{ background: NAVY }}>{num}</span>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{title}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">{desc}</p>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-2" style={{ background: "#fffbeb", border: "1px solid #fcd34d" }}>
+            <h3 className="font-black text-sm text-amber-800">⚡ الوضع الاحترافي (Pro Mode)</h3>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              فعّل "Pro Mode" من الشريط العلوي للحصول على محرك MPPT Auto-Design.
+              أدخل مواصفات datasheet اللوح والإنفرتر لتحصل على تصميم أوتار MPPT المثالي
+              مع درجة ثقة للتصميم وتحذيرات إن وُجدت.
+            </p>
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>🔢 المعادلات الهندسية المستخدمة</h3>
+            <div className="space-y-1.5">
+              {[
+                ["القدرة الكلية (kW)", "A × V × PF(0.85) ÷ 1000"],
+                ["عدد الألواح", "(القدرة × 1000) ÷ (قدرة اللوح × effP × effI)"],
+                ["عدد البطاريات", "(A_ليل × 230V × الساعات) ÷ (5120Wh × 0.8 DoD)"],
+                ["حجم الإنفرتر", "أقرب مقاس قياسي ≥ القدرة × 1.5 (معامل الانطلاق)"],
+              ].map(([lbl, eq]) => (
+                <div key={lbl as string} className="flex gap-2 items-start">
+                  <span className="text-xs font-bold text-slate-500 w-36 shrink-0">{lbl}:</span>
+                  <code className="text-xs text-slate-700 bg-slate-100 px-2 py-0.5 rounded font-mono">{eq}</code>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-1" style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}>
+            <h3 className="font-black text-sm" style={{ color: NAVY }}>💡 نصائح سريعة</h3>
+            <ul className="text-xs text-slate-600 space-y-1 leading-relaxed">
+              <li>• مرّر الفأرة على أي حقل لقراءة شرحه بالعربية</li>
+              <li>• بيانات كل تبويب (سكني/تجاري/زراعي) محفوظة بشكل مستقل</li>
+              <li>• استخدم 5.5 ساعة ذروة شمسية كمعدل لمنطقة بغداد</li>
+              <li>• أضف 20% هامش أمان إضافي للمشاريع التجارية الكبيرة</li>
+            </ul>
+          </section>
+
+        </div>
+        <div className="px-6 pb-6">
+          <button onClick={onClose}
+            className="w-full py-3 rounded-xl text-sm font-bold text-white transition hover:opacity-90"
+            style={{ background: NAVY }}>إغلاق</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── About Modal ───────────────────────────────────────────────────────────────
+function AboutModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center justify-between px-6 py-4 rounded-t-3xl border-b border-slate-100"
+          style={{ background: "linear-gradient(135deg, #001f3f 0%, #003366 100%)" }}>
+          <div>
+            <p className="text-white font-black text-lg">🌍 حول الموقع</p>
+            <p className="text-white/50 text-xs mt-0.5">AKZ & AL-KHWARIZMI · Solar Energy Solutions</p>
+          </div>
+          <button onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition text-xl font-bold">×</button>
+        </div>
+        <div className="p-6 space-y-6" dir="rtl" style={{ fontFamily: "'Segoe UI', Tahoma, sans-serif" }}>
+
+          <section className="space-y-3">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>🏢 عن شركة الخوارزمي للطاقة الشمسية</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              تأسست شركة الخوارزمي AKZ Iraq Solar بهدف تقديم حلول متكاملة للطاقة الشمسية في العراق والمنطقة العربية.
+              نؤمن بأن الطاقة المتجددة ليست رفاهية بل ضرورة حتمية لمستقبل مستدام، ونسعى إلى نشر ثقافة الاستثمار
+              في الطاقة الشمسية من خلال الأدوات الهندسية الاحترافية والتصاميم الدقيقة.
+            </p>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>🎯 الغرض من هذا الموقع</h3>
+            <p className="text-sm text-slate-600 leading-relaxed">
+              صُمِّم هذا الموقع ليكون أداة مرجعية هندسية يستخدمها المهندسون والتقنيون وأصحاب المشاريع لـ:
+            </p>
+            <ul className="space-y-2">
+              {[
+                "تصميم منظومات الطاقة الشمسية بدقة هندسية معتمدة على المعادلات الكهربائية الصحيحة",
+                "تقدير التكاليف الإجمالية وحساب العائد على الاستثمار وفترة الاسترداد",
+                "توليد تقارير PDF احترافية جاهزة للعرض على العملاء والمستثمرين",
+                "تصميم أوتار MPPT بشكل تلقائي مع التحقق من مواصفات الإنفرتر",
+                "دعم ثلاثة قطاعات رئيسية: السكني والتجاري والزراعي",
+              ].map((item, i) => (
+                <li key={i} className="flex gap-2 text-sm text-slate-600">
+                  <span className="text-amber-500 font-black shrink-0">◆</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="rounded-2xl overflow-hidden" style={{ border: "1px solid #e2e8f0" }}>
+            <div className="px-4 py-3" style={{ background: NAVY }}>
+              <h3 className="font-black text-sm text-white">☀️ مستقبل الطاقة الشمسية في الشرق الأوسط</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                يمتلك الشرق الأوسط وشمال أفريقيا أعلى معدلات الإشعاع الشمسي في العالم، مما يجعله من أكثر المناطق
+                ملاءمةً لتطوير الطاقة الشمسية. العراق تحديداً يتمتع بمعدل إشعاع شمسي يتراوح بين
+                <strong> 5 إلى 6.5 ساعة ذروة يومياً</strong>، وهو من أعلى المعدلات عالمياً.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  ["2030", "من المتوقع أن تتجاوز الطاقة الشمسية المركبة في المنطقة 500 GW"],
+                  ["التوفير", "تخفيض فاتورة الكهرباء والديزل بنسبة 60-80% في أغلب التطبيقات"],
+                  ["الزراعة", "الطاقة الشمسية لضخ المياه تُحدث ثورة في القطاع الزراعي العراقي"],
+                  ["التوظيف", "يُتوقع خلق أكثر من 200,000 فرصة عمل في قطاع الطاقة المتجددة بالمنطقة"],
+                ].map(([title, desc]) => (
+                  <div key={title as string} className="rounded-xl p-3" style={{ background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                    <p className="text-xs font-black mb-1" style={{ color: AMBER }}>{title}</p>
+                    <p className="text-xs text-slate-500 leading-relaxed">{desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="font-black text-base" style={{ color: NAVY }}>💡 توصيات للمستثمرين في الطاقة الشمسية</h3>
+            <div className="space-y-2">
+              {[
+                ["ابدأ بدراسة الحمل الكهربائي بدقة", "قياس الاستهلاك الفعلي لمدة أسبوع قبل التصميم يعطي نتائج أكثر دقة من التقدير"],
+                ["اختر بطاريات LiFePO4", "رغم ارتفاع سعرها مقارنةً بالرصاص الحامض، إلا أن عمرها الأطول (10+ سنوات) يجعلها الأوفر على المدى البعيد"],
+                ["لا تختصر في حجم الإنفرتر", "اختر إنفرتراً بقدرة 150% من حمل النظام لتحمّل الانطلاق والحرارة"],
+                ["استثمر في الصيانة الدورية", "تنظيف الألواح كل 3 أشهر يحافظ على كفاءة تتجاوز 95% في المناطق الغبارية"],
+                ["اطلع على التشريعات المحلية", "تحقق من قوانين تصدير الكهرباء للشبكة في منطقتك قبل تصميم المنظومة"],
+              ].map(([title, desc]) => (
+                <div key={title as string} className="flex gap-3 rounded-xl p-3" style={{ background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
+                  <span className="text-green-500 font-black text-sm shrink-0 mt-0.5">✓</span>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">{title}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 text-center" style={{ background: NAVY }}>
+            <p className="text-white font-black text-sm">Designed by Eng. Riyadh Noori</p>
+            <p className="text-amber-400 text-xs mt-1">AKZ & AL-KHWARIZMI · Baghdad, Iraq</p>
+            <p className="text-white/30 text-[10px] mt-2">SolarDesigner v1.2 · © 2025 جميع الحقوق محفوظة</p>
+          </section>
+
+        </div>
+        <div className="px-6 pb-6">
+          <button onClick={onClose}
+            className="w-full py-3 rounded-xl text-sm font-bold text-white transition hover:opacity-90"
+            style={{ background: NAVY }}>إغلاق</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function SolarDesigner() {
   const [tab, setTab] = useState<Tab>("residential");
   const [forms, setForms] = useState<Record<Tab, Form>>({
-    residential:  initForm(),
-    commercial:   initForm(),
-    agricultural: initForm(),
+    residential: initForm(), commercial: initForm(), agricultural: initForm(),
   });
-  const [showProMode, setShowProMode] = useState(false);
-  const [advanced, setAdvanced] = useState<Record<Tab, AdvancedConfig>>({
-    residential: initAdvanced(),
-    commercial: initAdvanced(),
-    agricultural: initAdvanced(),
-  });
-  const [feedback, setFeedback] = useState({
-    name: "",
-    profession: "",
-    comments: "",
-  });
+  const [showProInputs, setShowProInputs] = useState(false);
+  const [showReadMe, setShowReadMe] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
-  const f   = forms[tab];
+  const f = forms[tab];
   const isA = tab === "agricultural";
+
   const set = useCallback((k: keyof Form, v: number | string) =>
     setForms((p) => ({ ...p, [tab]: { ...p[tab], [k]: v } })), [tab]);
+  const setInv = useCallback((k: keyof InverterSpecs, v: number) =>
+    setForms((p) => ({ ...p, [tab]: { ...p[tab], invSpecs: { ...p[tab].invSpecs, [k]: v } } })), [tab]);
+  const setPnl = useCallback((k: keyof PanelSpecs, v: number) =>
+    setForms((p) => ({ ...p, [tab]: { ...p[tab], pnlSpecs: { ...p[tab].pnlSpecs, [k]: v } } })), [tab]);
 
-  const r   = run(f, tab);
-  const pct = (v: number) => r.total > 0 ? (v / r.total) * 100 : 0;
-  const setAdvancedField = useCallback((k: keyof AdvancedConfig, v: number) =>
-    setAdvanced((p) => ({ ...p, [tab]: { ...p[tab], [k]: v } })), [tab]);
-  const adv = advanced[tab];
-  const advResult = runAdvanced(adv, r.pps);
-
+  const r = run(f, tab);
+  const mppt = useMemo(() => calcMppt(f, r.panels), [f, r.panels]);
+  const pct = (v: number) => (r.total > 0 ? (v / r.total) * 100 : 0);
   const activeTab = TABS.find((t) => t.id === tab)!;
-  const submitFeedback = (e: FormEvent) => {
-    e.preventDefault();
-    toast({
-      title: "شكراً لمساهمتك في تطوير مشروع شمس العراق",
-      description: "تم استلام ملاحظاتك الفنية بنجاح.",
-    });
-    setFeedback({ name: "", profession: "", comments: "" });
-  };
+  const handleExportPDF = () => exportPDF(f, r, mppt, tab).catch(console.error);
 
   return (
     <div className="min-h-screen" style={{ background: "#f0f4f8", fontFamily: "'Inter', system-ui, sans-serif" }}>
-      <div className="fixed top-4 right-4 z-50 rounded-full border border-amber-300 bg-amber-100/95 px-3 py-1.5 shadow-sm">
-        <p className="text-[10px] sm:text-xs font-extrabold text-amber-900 tracking-wide">Beta Version v1.1 - For Professional Testing</p>
-      </div>
 
-      {/* ── Header ── */}
-      <header style={{ background: NAVY }}>
-        <div className="max-w-4xl mx-auto px-5 pt-7 pb-0">
-          {/* Brand */}
-          <div className="flex items-center gap-4 mb-7">
-            <div
-              className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
-              style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)" }}
-            >
-              <img src={akzLogo} alt="AKZ Logo" className="w-full h-full object-cover" />
-            </div>
-            <div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-white font-extrabold text-xl tracking-wide">Iraq Sun Power</span>
-                <span className="text-white/20 hidden sm:inline text-xl font-thin">|</span>
-                <span className="font-bold text-xl" style={{ color: "#f59e0b" }}>طاقة شمس العراق</span>
+      {/* Modals */}
+      {showReadMe && <ReadMeModal onClose={() => setShowReadMe(false)} />}
+      {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+
+      {/* Header */}
+      <header className="relative overflow-hidden pt-12 pb-0"
+        style={{ background: `linear-gradient(160deg, ${NAVY} 0%, #030a17 100%)` }}>
+        <div className="absolute inset-0 opacity-10"
+          style={{ backgroundImage: "radial-gradient(#fbbf24 0.6px, transparent 0)", backgroundSize: "24px 24px" }} />
+        <div className="max-w-5xl mx-auto px-6 relative z-10">
+          <div className="flex flex-col md:flex-row items-center gap-8">
+            <div className="relative group">
+              <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-3xl transition-opacity duration-700" />
+              <div className="relative w-28 h-28 bg-white rounded-[2rem] p-2 shadow-xl flex items-center justify-center border border-white/10 transition-transform duration-500 group-hover:scale-105">
+                <img src={akzLogo} alt="AKZ Logo" className="w-full h-full object-contain" />
               </div>
-              <p className="text-white/35 text-xs mt-0.5 tracking-wide">Solar PV System Designer — Iraq Grid Standard</p>
+            </div>
+            <div className="flex-1 text-center md:text-left">
+              <h1 className="text-white font-black text-4xl md:text-5xl tracking-tight leading-none">
+                AKZ <span style={{ color: AMBER }}>Iraq</span> Solar
+              </h1>
+              <h2 className="text-xl md:text-2xl font-semibold text-slate-300 mt-1.5">الخوارزمي للطاقة الشمسية</h2>
+              <div className="mt-5 flex flex-wrap justify-center md:justify-start gap-3">
+                <div className="flex items-center gap-2 px-4 py-2 rounded-xl border border-white/10"
+                  style={{ background: "rgba(255,255,255,0.05)" }}>
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                  </span>
+                  <span className="text-slate-200 text-xs font-bold uppercase tracking-wider">Solar PV Systems Specialist</span>
+                </div>
+              </div>
             </div>
           </div>
-          {/* Tabs */}
-          <div className="flex gap-1">
+          <div className="flex gap-2 mt-12 overflow-x-auto">
             {TABS.map((t) => (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className="flex items-center gap-2 px-5 py-3 text-sm font-bold rounded-t-xl transition-all focus:outline-none"
+                className="flex items-center gap-2 px-6 py-4 text-sm font-black rounded-t-2xl transition-all duration-300 whitespace-nowrap outline-none border-b-4"
                 style={tab === t.id
-                  ? { background: "#f0f4f8", color: NAVY }
-                  : { color: "rgba(255,255,255,0.45)" }}>
-                <span className="hidden sm:inline">{t.en}</span>
-                <span className="sm:hidden">{t.ar}</span>
-                <span className="hidden md:inline text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                  style={tab === t.id
-                    ? { background: "rgba(0,31,63,0.1)", color: NAVY }
-                    : { background: "rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.4)" }}>
-                  {t.ar}
-                </span>
+                  ? { background: "#ffffff", color: NAVY, borderColor: AMBER, transform: "translateY(-3px)", boxShadow: "0 -8px 20px rgba(0,0,0,0.15)" }
+                  : { background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.4)", borderColor: "transparent" }
+                }>
+                <span>{t.icon}</span><span>{t.en}</span>
+                <span className="text-xs font-medium opacity-60">| {t.ar}</span>
               </button>
             ))}
           </div>
@@ -604,186 +918,112 @@ export default function SolarDesigner() {
       </header>
 
       {/* Sub-strip */}
-      <div className="bg-white border-b border-slate-200">
-        <div className="max-w-4xl mx-auto px-5 py-2.5 flex items-center gap-3 flex-wrap">
-          <span className="text-xs font-extrabold uppercase tracking-widest" style={{ color: NAVY }}>{activeTab.en}</span>
-          <span className="text-slate-200">·</span>
-          <span className="text-xs text-slate-400">{activeTab.spec}</span>
+      <div className="bg-white border-b border-slate-200 shadow-sm relative z-20">
+        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">Active System</span>
+            <div className="h-3.5 w-px bg-slate-200" />
+            <span className="text-xs font-bold uppercase" style={{ color: AMBER }}>{activeTab.en}</span>
+            <span className="text-[10px] text-slate-400 hidden sm:inline">— {activeTab.spec}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setShowProInputs((v) => !v)}
+              className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all"
+              style={showProInputs ? { background: NAVY, color: "#fff", borderColor: NAVY } : { background: "#fff", color: "#94a3b8", borderColor: "#e2e8f0" }}>
+              {showProInputs ? "⚙ Pro ON" : "⚙ Pro Mode"}
+            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowReadMe(true)}
+                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all"
+                style={{ background: "#fff", color: "#64748b", borderColor: "#e2e8f0" }}>
+                📖 اقرأني
+              </button>
+              <button type="button" onClick={() => setShowAbout(true)}
+                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all"
+                style={{ background: "#fff", color: "#64748b", borderColor: "#e2e8f0" }}>
+                🌍 حول الموقع
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <main className="max-w-4xl mx-auto px-5 py-7 space-y-5">
 
-        <HeroSection tab={tab} activeTab={activeTab} />
+        <DiagramPlaceholder tab={tab} />
 
-        {tab !== "residential" && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => setShowProMode((v) => !v)}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-extrabold tracking-wider uppercase transition-colors"
-              style={showProMode ? { background: NAVY, color: "#fff" } : { background: "#e2e8f0", color: "#334155" }}
-            >
-              PRO
-              <span>{showProMode ? "On" : "Off"}</span>
-            </button>
+        {/* System Inputs */}
+        <Card title="System Inputs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div><FieldLabel text="Panel Brand" /><SelInput value={f.panelBrand} onChange={(v) => set("panelBrand", v)} opts={PANEL_BRANDS} tipKey="Panel Brand" /></div>
+            <div><FieldLabel text="Panel Wattage" hint="Default: 620W" /><NumInput value={f.panelWattage} onChange={(v) => set("panelWattage", v)} min={100} step={10} unit="W" tipKey="Panel Wattage" /></div>
+            <div>
+              <FieldLabel text={isA ? "3-Phase Load (Amps)" : "Day Load (Amps)"}
+                hint={isA ? "A × 400V × 1.732 × 0.85 PF ÷ 1000" : "A × 230V × 0.85 PF ÷ 1000"} />
+              <NumInput value={f.dayAmps} onChange={(v) => set("dayAmps", v)} min={0} step={1} unit="A" tipKey={isA ? "3-Phase Load (Amps)" : "Day Load (Amps)"} />
+            </div>
+            {!isA && (<>
+              <div><FieldLabel text="Night Load (Amps)" hint="Used for battery bank sizing" /><NumInput value={f.nightAmps} onChange={(v) => set("nightAmps", v)} min={0} step={1} unit="A" tipKey="Night Load (Amps)" /></div>
+              <div><FieldLabel text="Desired Night Backup (Hours)" hint="Autonomy hours — default 3h" /><NumInput value={f.backupHours} onChange={(v) => set("backupHours", v)} min={0.5} step={0.5} unit="h" tipKey="Desired Night Backup (Hours)" /></div>
+            </>)}
           </div>
-        )}
+        </Card>
 
-        {tab !== "residential" && showProMode && (
-          <Card title="Advanced Installer Mode" badge="String Configuration Tool">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <FieldLabel text="Max DC Input Voltage" hint="Inverter absolute DC limit" />
-                <NumInput value={adv.maxDcVoltage} onChange={(v) => setAdvancedField("maxDcVoltage", v)} min={100} step={10} unit="V" />
+        {/* Pro Mode Inputs */}
+        {showProInputs && (
+          <Card title="⚙ Pro Mode — Panel & Inverter Electrical Specs" badge="MPPT Auto-Design">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="space-y-3">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Panel Datasheet</p>
+                {([["Voc (Open Circuit Voltage)", "voc", "V"], ["Vmp (Max Power Voltage)", "vmp", "V"],
+                   ["Imp (Max Power Current)", "imp", "A"], ["Isc (Short Circuit Current)", "isc", "A"]] as [string, keyof PanelSpecs, string][])
+                  .map(([label, key, unit]) => (
+                    <div key={key}><FieldLabel text={label} /><NumInput value={f.pnlSpecs[key]} onChange={(v) => setPnl(key, v)} min={0} step={0.1} unit={unit} tipKey={label} /></div>
+                  ))}
               </div>
-              <div>
-                <FieldLabel text="Max Input Current / MPPT" hint="Per MPPT tracker current limit" />
-                <NumInput value={adv.maxInputCurrentPerMppt} onChange={(v) => setAdvancedField("maxInputCurrentPerMppt", v)} min={1} step={1} unit="A" />
-              </div>
-              <div>
-                <FieldLabel text="MPPT Voltage Min" hint="Minimum MPPT operating voltage" />
-                <NumInput value={adv.mpptMin} onChange={(v) => setAdvancedField("mpptMin", v)} min={50} step={5} unit="V" />
-              </div>
-              <div>
-                <FieldLabel text="MPPT Voltage Max" hint="Maximum MPPT operating voltage" />
-                <NumInput value={adv.mpptMax} onChange={(v) => setAdvancedField("mpptMax", v)} min={100} step={5} unit="V" />
-              </div>
-              <div>
-                <FieldLabel text="Panel Voc (STC)" hint="Open-circuit voltage at 25C" />
-                <NumInput value={adv.panelVoc} onChange={(v) => setAdvancedField("panelVoc", v)} min={1} step={0.1} unit="V" />
-              </div>
-              <div>
-                <FieldLabel text="Panel Vmp (STC)" hint="Max power voltage at 25C" />
-                <NumInput value={adv.panelVmp} onChange={(v) => setAdvancedField("panelVmp", v)} min={1} step={0.1} unit="V" />
-              </div>
-              <div>
-                <FieldLabel text="Temp Coeff. Voc" hint="Percent per degree C (typically negative)" />
-                <NumInput value={adv.tempCoeffVoc} onChange={(v) => setAdvancedField("tempCoeffVoc", v)} min={-1} step={0.01} unit="%/C" />
-              </div>
-              <div>
-                <FieldLabel text="Min Ambient Temp (Iraq)" hint="Default cold safety check temperature" />
-                <NumInput value={adv.minAmbientTemp} onChange={(v) => setAdvancedField("minAmbientTemp", v)} min={-10} step={1} unit="C" />
-              </div>
-              <div>
-                <FieldLabel text="Max Panel Temp (Iraq)" hint="Default hot MPPT efficiency temperature" />
-                <NumInput value={adv.maxPanelTemp} onChange={(v) => setAdvancedField("maxPanelTemp", v)} min={30} step={1} unit="C" />
+              <div className="space-y-3">
+                <p className="text-[10px] font-extrabold uppercase tracking-widest text-slate-400">Inverter MPPT Specs</p>
+                {([["Max PV Voltage", "maxPvVolts", "V"], ["MPPT Min Voltage", "minMpptVolts", "V"],
+                   ["MPPT Max Voltage", "maxMpptVolts", "V"], ["Max MPPT Current", "maxMpptCurrent", "A"],
+                   ["Number of MPPTs", "mpptCount", ""]] as [string, keyof InverterSpecs, string][])
+                  .map(([label, key, unit]) => (
+                    <div key={key}><FieldLabel text={label} /><NumInput value={f.invSpecs[key]} onChange={(v) => setInv(key, v)} min={0} step={key === "mpptCount" ? 1 : 10} unit={unit} tipKey={label} /></div>
+                  ))}
               </div>
             </div>
-
-            <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatBox label="Voc @ Min Temp" value={advResult.vocAtCold.toFixed(2) + " V"} sub="Cold condition voltage rise" />
-              <StatBox label="Vmp @ Max Temp" value={advResult.vmpAtHot.toFixed(2) + " V"} sub="Hot condition voltage drop" />
-              <StatBox
-                label="Safe Panels / String"
-                value={advResult.safeMax >= advResult.safeMin ? `${advResult.safeMin} - ${advResult.safeMax}` : "Out of Range"}
-                sub="Calculated from Voc safety + MPPT range"
-              />
-            </div>
-
-            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-xs font-bold text-slate-500 mb-1">Current design check ({r.pps} panels/string)</p>
-              <p className="text-sm text-slate-700">String Voc @ {adv.minAmbientTemp}C: <span className="font-bold">{advResult.stringVocCold.toFixed(1)} V</span></p>
-              <p className="text-sm text-slate-700">String Vmp @ {adv.maxPanelTemp}C: <span className="font-bold">{advResult.stringVmpHot.toFixed(1)} V</span></p>
-            </div>
-
-            {advResult.redWarning && (
-              <div className="mt-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3">
-                <p className="text-sm font-bold text-red-700">Safety Risk: Total Voc at {adv.minAmbientTemp}C exceeds inverter Max DC Voltage.</p>
-              </div>
-            )}
-
-            {!advResult.redWarning && advResult.yellowWarning && (
-              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-                <p className="text-sm font-bold text-amber-700">Efficiency Warning: Vmp at high temperature drops below inverter Min MPPT voltage.</p>
-              </div>
-            )}
           </Card>
         )}
 
-        {/* ── 1. System Inputs ── */}
-        <div id="system-inputs" className="scroll-mt-24">
-        <Card title="System Inputs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div>
-              <FieldLabel text="Panel Brand" />
-              <SelInput value={f.panelBrand} onChange={(v) => set("panelBrand", v)} opts={PANEL_BRANDS} />
-            </div>
-            <div>
-              <FieldLabel text="Panel Wattage" hint="Default: 620W" />
-              <NumInput value={f.panelWattage} onChange={(v) => set("panelWattage", v)} min={100} step={10} unit="W" />
-            </div>
-            <div>
-              <FieldLabel
-                text={isA ? "3-Phase Load (Amps)" : "Day Load (Amps)"}
-                hint={isA ? "A × 400V × 1.732 × 0.85 PF ÷ 1000" : "A × 230V × 0.85 PF ÷ 1000"} />
-              <NumInput value={f.dayAmps} onChange={(v) => set("dayAmps", v)} min={0} step={1} unit="A" />
-            </div>
-
-            {/* Night load & backup — HIDDEN on Agricultural */}
-            {!isA && (
-              <>
-                <div>
-                  <FieldLabel text="Night Load (Amps)" hint="Used for battery bank sizing" />
-                  <NumInput value={f.nightAmps} onChange={(v) => set("nightAmps", v)} min={0} step={1} unit="A" />
-                </div>
-                <div>
-                  <FieldLabel text="Desired Night Backup (Hours)" hint="Autonomy hours — default 3h" />
-                  <NumInput value={f.backupHours} onChange={(v) => set("backupHours", v)} min={0.5} step={0.5} unit="h" />
-                </div>
-              </>
-            )}
-          </div>
-        </Card>
-        </div>
-
-        {/* ── 2. Efficiency ── */}
+        {/* Efficiency */}
         <Card title="Efficiency Parameters" badge="Default: 80% each">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            <Slider label="Panel (effP)"    value={f.effP} onChange={(v) => set("effP", v)} />
+            <Slider label="Panel (effP)" value={f.effP} onChange={(v) => set("effP", v)} />
             <Slider label="Inverter (effI)" value={f.effI} onChange={(v) => set("effI", v)} />
             {!isA && <Slider label="Battery (effB)" value={f.effB} onChange={(v) => set("effB", v)} />}
           </div>
         </Card>
 
-        {/* ── 3. Technical Results ── */}
+        {/* Technical Results */}
         <Card title="Technical Results">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <StatBox primary label="System Capacity"
-              value={r.cap.toFixed(2) + " kW"}
+            <StatBox primary label="System Capacity" value={r.cap.toFixed(2) + " kW"}
               sub={isA ? "A × 400V × 1.732 × 0.85 PF ÷ 1000" : "A × 230V × 0.85 PF ÷ 1000"} />
-            <StatBox label="Total Panels" value={String(r.panels)}
-              sub={f.panelBrand + " · " + f.panelWattage + "W · effP " + f.effP + "% · effI " + f.effI + "%"} />
-            <StatBox label="String Config"
-              value={r.strings > 0 ? r.strings + " × " + r.pps : "—"}
-              sub="Target: 10–14 panels/string" />
-            {!isA && (
-              <StatBox label={"Battery Bank (" + f.backupHours + "h)"}
-                value={String(r.batt)}
-                sub={"× 5.12kWh LiFePO4 · DoD 80% · effB " + f.effB + "%"} />
-            )}
-            <StatBox label="Inverter (1.5×)"
-              value={r.inv + " kW"}
-              sub={"Min " + (r.cap * SRG).toFixed(2) + " kW · surge + heat"} />
+            <StatBox label="Total Panels" value={String(r.panels)} sub={f.panelBrand + " · " + f.panelWattage + "W"} />
+            <StatBox label="Daily Energy" value={(r.dailyWh / 1000).toFixed(1) + " kWh"} sub={"Based on " + PSH + "h peak sun (Baghdad)"} />
+            <StatBox label="String Config" value={r.strings > 0 ? r.strings + " × " + r.pps : "—"} sub="Target: 10–14 panels/string" />
+            {!isA && <StatBox label={"Battery Bank (" + f.backupHours + "h)"} value={String(r.batt)} sub={"× 5.12kWh LiFePO4 · DoD 80% · usable 4.1kWh each"} />}
+            <StatBox label="Inverter (1.5×)" value={r.inv + " kW"} sub={"Min " + (r.cap * SRG).toFixed(2) + " kW · surge + heat"} />
           </div>
-
-          {/* Controller recommendation */}
           <div className="mt-3 rounded-xl border border-blue-100 px-4 py-3" style={{ background: "#eff6ff" }}>
-            <p className="text-[10px] font-extrabold uppercase tracking-widest mb-0.5" style={{ color: NAVY, opacity: 0.5 }}>
-              Controller Recommendation
-            </p>
+            <p className="text-[10px] font-extrabold uppercase tracking-widest mb-0.5" style={{ color: NAVY, opacity: 0.5 }}>Controller Recommendation</p>
             <p className="text-sm font-bold" style={{ color: NAVY }}>{r.ctrl}</p>
           </div>
-
-          {/* Inverter size indicator */}
           <div className="mt-3">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Standard Inverter Sizes</p>
             <div className="flex flex-wrap gap-2">
               {INVERTER_SIZES.map((s) => (
                 <span key={s} className="text-xs font-bold px-3 py-1 rounded-full border transition-all"
-                  style={s === r.inv
-                    ? { background: NAVY, color: "#fff", border: `1px solid ${NAVY}` }
-                    : { background: "#fff", color: "#94a3b8", border: "1px solid #e2e8f0" }}>
+                  style={s === r.inv ? { background: NAVY, color: "#fff", border: `1px solid ${NAVY}` } : { background: "#fff", color: "#94a3b8", border: "1px solid #e2e8f0" }}>
                   {s} kW{s === r.inv ? " ✓" : ""}
                 </span>
               ))}
@@ -791,37 +1031,28 @@ export default function SolarDesigner() {
           </div>
         </Card>
 
-        {/* ── 4. Cost Breakdown ── */}
+        {/* MPPT (Pro only) */}
+        {showProInputs && (
+          <Card title="MPPT Auto-Design Engine" badge="Pro Feature">
+            <MpptPanel mppt={mppt} mpptCount={f.invSpecs.mpptCount} />
+          </Card>
+        )}
+
+        {/* Cost Breakdown */}
         <Card title="Cost Breakdown" badge="4 fields required">
           <div className="space-y-5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <FieldLabel text="Panels Cost ($)" />
-                <NumInput value={f.costPanels} onChange={(v) => set("costPanels", v)} min={0} step={100} unit="$" />
-              </div>
-              {/* Batteries cost — HIDDEN on Agricultural */}
-              {!isA && (
-                <div>
-                  <FieldLabel text="Batteries Cost ($)" />
-                  <NumInput value={f.costBatteries} onChange={(v) => set("costBatteries", v)} min={0} step={100} unit="$" />
-                </div>
-              )}
-              <div>
-                <FieldLabel text="Inverter Cost ($)" />
-                <NumInput value={f.costInverter} onChange={(v) => set("costInverter", v)} min={0} step={100} unit="$" />
-              </div>
-              <div>
-                <FieldLabel text="Installation & Transport ($)" />
-                <NumInput value={f.costInstall} onChange={(v) => set("costInstall", v)} min={0} step={50} unit="$" />
-              </div>
+              <div><FieldLabel text="Panels Cost ($)" /><NumInput value={f.costPanels} onChange={(v) => set("costPanels", v)} min={0} step={100} unit="$" tipKey="Panels Cost ($)" /></div>
+              {!isA && <div><FieldLabel text="Batteries Cost ($)" /><NumInput value={f.costBatteries} onChange={(v) => set("costBatteries", v)} min={0} step={100} unit="$" tipKey="Batteries Cost ($)" /></div>}
+              <div><FieldLabel text="Inverter Cost ($)" /><NumInput value={f.costInverter} onChange={(v) => set("costInverter", v)} min={0} step={100} unit="$" tipKey="Inverter Cost ($)" /></div>
+              <div><FieldLabel text="Installation & Transport ($)" /><NumInput value={f.costInstall} onChange={(v) => set("costInstall", v)} min={0} step={50} unit="$" tipKey="Installation & Transport ($)" /></div>
             </div>
-
             {r.total > 0 && (
               <div className="space-y-3 pt-1">
-                <CostBar label="Panels"       amount={f.costPanels}    pct={pct(f.costPanels)} />
+                <CostBar label="Panels" amount={f.costPanels} pct={pct(f.costPanels)} />
                 {!isA && <CostBar label="Batteries" amount={f.costBatteries} pct={pct(f.costBatteries)} />}
-                <CostBar label="Inverter"     amount={f.costInverter}  pct={pct(f.costInverter)} />
-                <CostBar label="Installation" amount={f.costInstall}   pct={pct(f.costInstall)} />
+                <CostBar label="Inverter" amount={f.costInverter} pct={pct(f.costInverter)} />
+                <CostBar label="Installation" amount={f.costInstall} pct={pct(f.costInstall)} />
                 <div className="flex items-center justify-between rounded-xl px-5 py-4 mt-2" style={{ background: NAVY }}>
                   <p className="text-sm font-bold text-white/60">Total System Cost</p>
                   <p className="text-2xl font-extrabold text-white">${r.total.toLocaleString("en-US")}</p>
@@ -831,56 +1062,46 @@ export default function SolarDesigner() {
           </div>
         </Card>
 
-        {/* ── 5. Financial + PDF ── */}
-        <div id="financial-pdf" className="scroll-mt-24">
+        {/* Financial + PDF */}
         <Card title="Financial Analysis & PDF Report">
           <div className="space-y-5">
             <div>
               <FieldLabel text="Expected Monthly Savings (USD)" hint="Estimated electricity bill reduction per month" />
-              <NumInput value={f.savings} onChange={(v) => set("savings", v)} min={0} step={10} unit="$" />
+              <NumInput value={f.savings} onChange={(v) => set("savings", v)} min={0} step={10} unit="$" tipKey="Expected Monthly Savings (USD)" />
             </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  { l: "Annual Savings",  v: "$" + r.annual.toLocaleString("en-US") },
-                  { l: "Payback Period",  v: r.payback.toFixed(1) + " yrs"          },
-                  { l: "Annual ROI",      v: r.roi.toFixed(1) + "%"                  },
-                ].map(({ l, v }) => (
+            {r.annual > 0 && (
+              <div className="grid grid-cols-3 gap-3">
+                {[{ l: "Annual Savings", v: "$" + r.annual.toLocaleString("en-US") },
+                  { l: "Payback Period", v: r.payback.toFixed(1) + " yrs" },
+                  { l: "Annual ROI", v: r.roi.toFixed(1) + "%" }].map(({ l, v }) => (
                   <div key={l} className="border border-slate-200 rounded-xl p-3 text-center bg-slate-50">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">{l}</p>
                     <p className="text-lg font-extrabold" style={{ color: NAVY }}>{v}</p>
                   </div>
                 ))}
               </div>
-
-            <button onClick={() => exportPDF(
-              f,
-              r,
-              tab,
-              tab !== "residential" ? adv : undefined,
-              tab !== "residential" ? advResult : undefined,
             )}
-              className="w-full py-4 rounded-xl text-sm font-extrabold tracking-wide transition-all flex items-center justify-center gap-2"
-              style={{ background: NAVY, color: "#fff", cursor: "pointer", opacity: 1 }}>
-              ↓  Download Technical Proposal PDF
+            <button type="button" onClick={handleExportPDF}
+              className="w-full py-4 rounded-xl text-sm font-extrabold tracking-wide transition-all flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.99]"
+              style={{ background: NAVY, color: "#fff", cursor: "pointer" }}>
+              ↓ &nbsp; Download Technical Proposal PDF
             </button>
           </div>
         </Card>
-        </div>
 
-        {/* ── Formula Reference ── */}
+        {/* Formulas */}
         <Card title={"Engineering Formulas — " + activeTab.en}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {(isA ? [
               ["System Capacity (kW)", "(Amps × 400V × 1.732 × 0.85 PF) / 1000"],
-              ["Total Panels",         "(Capacity × 1000) / (Wattage × effP × effI)"],
-              ["Inverter Size",        "Next std size ≥ Capacity × 1.5 (surge + heat)"],
-              ["String Target",        "10 – 14 panels per string"],
+              ["Total Panels", "(Capacity × 1000) / (Wattage × effP × effI)"],
+              ["Inverter Size", "Next std size ≥ Capacity × 1.5 (surge + heat)"],
+              ["String Target", "10–14 panels per string"],
             ] : [
               ["System Capacity (kW)", "(Day Amps × 230V × 0.85 PF) / 1000"],
-              ["Total Panels",         "(Capacity × 1000) / (Wattage × effP × effI)"],
-              ["Battery Units",        "(Night A × 230V × Hours) / (5.12kWh × 0.8 × effB)"],
-              ["Inverter Size",        "Next std size ≥ Capacity × 1.5 (surge + heat)"],
+              ["Total Panels", "(Capacity × 1000) / (Wattage × effP × effI)"],
+              ["Battery Units", "(Night A × 230V × Hours) / (5,120Wh × 0.8 DoD)"],
+              ["Inverter Size", "Next std size ≥ Capacity × 1.5 (surge + heat)"],
             ]).map(([lbl, formula]) => (
               <div key={lbl}>
                 <p className="text-[10px] font-extrabold uppercase tracking-wide text-slate-400 mb-1">{lbl}</p>
@@ -891,136 +1112,12 @@ export default function SolarDesigner() {
           </div>
         </Card>
 
-        <Card title="About Us — من نحن" badge="Since 1996">
-          <div className="space-y-4 text-slate-700 leading-relaxed">
-            <h3 className="text-lg font-extrabold" style={{ color: NAVY }}>
-              الريادة في الحلول التقنية والطاقة المتجددة منذ 1996
-            </h3>
-            <p className="text-sm">
-              نحن في شركة الخوارزمي لتقنيات الحاسوب والطاقة الشمسية، نمثل مسيرة مهنية بدأت منذ عام 1996، تخصصنا خلالها في بناء
-              جسور الثقة عبر تقديم حلول متكاملة في مجالات تكنولوجيا المعلومات، الاتصالات، والطاقة الكهربائية.
-            </p>
-            <p className="text-sm">
-              على مدار أكثر من عقدين من الزمان، التزمنا بتوفير أرقى الخدمات الهندسية والتقنية لكافة قطاعات المجتمع العراقي. واليوم،
-              ندمج خبرتنا العريقة في الأنظمة الإلكترونية وأنظمة السيطرة مع أحدث تكنولوجيا الطاقة الشمسية، لنقدم لعملائنا في القطاعات
-              السكنية، الصناعية، والزراعية حلولاً طاقوية ذكية، مستدامة، ومبنية على أسس هندسية دقيقة.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Vision</p>
-                <p className="text-sm">تمكين المجتمع العراقي من استغلال الطاقة النظيفة بأعلى كفاءة تقنية ممكنة.</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-1">Mission</p>
-                <p className="text-sm">تحويل التحديات التقنية إلى حلول واقعية تخدم بيئة العمل والحياة اليومية.</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <StatBox label="Establishment" value="Since 1996" />
-              <StatBox label="Core Specialties" value="IT · Comms · Power" />
-              <StatBox label="Firm Identity" value="AKZ Iraq Sun Energy" />
-            </div>
-          </div>
-        </Card>
-
-        <Card title="Help Center — المساعدة" badge="FAQ for Installers">
-          <Accordion type="single" collapsible className="w-full">
-            <AccordionItem value="q1">
-              <AccordionTrigger>كيف تعمل حاسبة الـ Strings؟</AccordionTrigger>
-              <AccordionContent>
-                تعتمد الحاسبة على جهد اللوح في الظروف الباردة (Voc) والساخنة (Vmp)، وتقارنها مع حدود الإنفرتر (Max DC و MPPT Min/Max)
-                لإعطاء مدى آمن لعدد الألواح في كل string.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q2">
-              <AccordionTrigger>ما هي المعايير المستخدمة في حساب فاقد الجهد؟</AccordionTrigger>
-              <AccordionContent>
-                يتم تقييم الأداء في وضع Installer Pro عبر تأثير الحرارة على الجهد (درجة حرارة عراقية افتراضية) لضمان سلامة الجهد
-                والكفاءة التشغيلية ضمن مجال MPPT.
-              </AccordionContent>
-            </AccordionItem>
-            <AccordionItem value="q3">
-              <AccordionTrigger>كيف يمكنني تصدير التقرير الفني كـ PDF؟</AccordionTrigger>
-              <AccordionContent>
-                من قسم Financial Analysis &amp; PDF Report اضغط زر تنزيل التقرير. يتضمن التقرير النتائج الفنية، المالية، وملحق Installer
-                المتقدم (للوضع الصناعي والزراعي).
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </Card>
-
-        <Card title="Feedback System — الملاحظات الفنية" badge="For Professional Users">
-          <form onSubmit={submitFeedback} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <FieldLabel text="الاسم الثلاثي" />
-                <input
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium bg-white"
-                  value={feedback.name}
-                  onChange={(e) => setFeedback((p) => ({ ...p, name: e.target.value }))}
-                  required
-                />
-              </div>
-              <div>
-                <FieldLabel text="التخصص" hint="مهندس / فني / صاحب شركة" />
-                <select
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-medium bg-white"
-                  value={feedback.profession}
-                  onChange={(e) => setFeedback((p) => ({ ...p, profession: e.target.value }))}
-                  required
-                >
-                  <option value="">اختر التخصص</option>
-                  <option value="مهندس">مهندس</option>
-                  <option value="فني">فني</option>
-                  <option value="صاحب شركة">صاحب شركة</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <FieldLabel text="الملاحظات والاقتراحات الفنية لتطوير النسخة القادمة" />
-              <textarea
-                className="w-full border border-slate-200 rounded-lg px-3 py-3 text-sm font-medium bg-white min-h-28"
-                value={feedback.comments}
-                onChange={(e) => setFeedback((p) => ({ ...p, comments: e.target.value }))}
-                required
-              />
-            </div>
-            <button
-              type="submit"
-              className="rounded-lg px-5 py-2.5 text-sm font-bold text-white"
-              style={{ background: NAVY }}
-            >
-              Submit
-            </button>
-          </form>
-        </Card>
-
       </main>
 
-      {/* ── Footer ── */}
-      <footer className="py-8 mt-4" style={{ background: NAVY }}>
-        <div className="max-w-4xl mx-auto px-5 grid grid-cols-1 sm:grid-cols-3 gap-5 items-start">
-          <div className="flex items-center gap-3">
-            <img src={akzLogo} alt="AKZ Iraq Sun Energy" className="w-12 h-12 rounded-lg object-cover border border-white/20" />
-            <div>
-              <p className="text-white font-extrabold text-sm tracking-wide">AKZ Iraq Sun Energy</p>
-              <p className="font-semibold text-sm mt-0.5" style={{ color: "#f59e0b" }}>Since 1996</p>
-            </div>
-          </div>
-          <div>
-            <p className="text-white/90 text-sm font-bold mb-1">Address</p>
-            <p className="text-white/70 text-xs">Baghdad, Iraq</p>
-            <p className="text-white/70 text-xs">Baghdad-Sinaa Street Near Univ. of Technology</p>
-          </div>
-          <div>
-            <p className="text-white/90 text-sm font-bold mb-1">Contact</p>
-            <div className="flex flex-col gap-1 text-xs">
-              <a className="text-white/70 hover:text-white" href="mailto:info@akz-iq.com">info@akz-iq.com</a>
-              <a className="text-white/70 hover:text-white" href="tel:+9640000000000">+964 000 000 0000</a>
-              <a className="text-white/70 hover:text-white" href="https://www.linkedin.com" target="_blank" rel="noreferrer">LinkedIn</a>
-            </div>
-          </div>
-        </div>
+      <footer className="py-6 text-center mt-4" style={{ background: NAVY }}>
+        <p className="text-white font-extrabold text-sm tracking-wide">Iraq Sun Power · AKZ Solar</p>
+        <p className="font-semibold text-sm mt-0.5" style={{ color: AMBER }}>الخوارزمي للطاقة الشمسية</p>
+        <p className="text-white/30 text-xs mt-2">Approved by Eng. Riyadh Nouri · Baghdad, Iraq</p>
       </footer>
 
     </div>
