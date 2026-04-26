@@ -134,6 +134,9 @@ importers:
       react:
         specifier: ^18.3.1
         version: 18.3.1
+      react-chatbot-kit:
+        specifier: ^2.2.2
+        version: 2.2.2
       react-day-picker:
         specifier: ^9.11.1
         version: 9.14.0(react@18.3.1)
@@ -2765,6 +2768,12 @@ packages:
   raw-body@3.0.2:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
     engines: {node: '>= 0.10'}
+
+  react-chatbot-kit@2.2.2:
+    resolution: {integrity: sha512-8p/i0KkzkhoyG2XsL6Pb6f72k9j7GYNAc5SOa4f9OZwbCD3Q34uEruNPc06qa1wZHKfT6aFna19PA2plFuO2NA==}
+
+  react-conditionally-render@1.0.2:
+    resolution: {integrity: sha512-CtjIgaLHVDSgHis3gv/PT/8EnD6GPUL8PrhUjh7DP6S5Y3p56dGu7y2nVg6pYv1kv+fGznRhRmX3assr/vRw3A==}
 
   react-day-picker@9.14.0:
     resolution: {integrity: sha512-tBaoDWjPwe0M5pGrum4H0SR6Lyk+BO9oHnp9JbKpGKW2mlraNPgP9BMfsg5pWpwrssARmeqk7YBl2oXutZTaHA==}
@@ -5714,6 +5723,12 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.2
       unpipe: 1.0.0
+
+  react-chatbot-kit@2.2.2:
+    dependencies:
+      react-conditionally-render: 1.0.2
+
+  react-conditionally-render@1.0.2: {}
 
   react-day-picker@9.14.0(react@18.3.1):
     dependencies:

@@ -5,6 +5,8 @@ import residentialImg from "./residential.png";
 import industrialImg from "./industrial.png";
 import agriculturalImg from "./agricultural.png";
 import akzLogo from "./AKZ_Logo.png";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import InstallationAssistant from "@/components/InstallationAssistant";
 
 // ── Arabic Tooltips Map ───────────────────────────────────────────────────────
 export const AR_TIPS: Record<string, string> = {
@@ -256,7 +258,7 @@ export async function exportPDF(f: Form, r: Calc, mppt: MpptDesign, tab: Tab) {
     : "Agricultural — 3-Phase 400V Pump";
 
   // ── Header background ──
-  doc.setFillColor(255, 215, 0); doc.rect(0, 0, W, 52, "F");
+  doc.setFillColor(0, 51, 102); doc.rect(0, 0, W, 52, "F");
   doc.setFillColor(0, 31, 63); doc.rect(0, 49, W, 3, "F");
 
   // ── Logo ──
@@ -269,7 +271,7 @@ export async function exportPDF(f: Form, r: Calc, mppt: MpptDesign, tab: Tab) {
       logoImg.onerror = () => resolve();
       setTimeout(resolve, 2000);
     });
-    doc.addImage(logoImg, "PNG", ML, 6, 28, 28);
+    doc.addImage(logoImg, "PNG", ML, 4, 32, 32);
   } catch (_) { /* skip logo if it fails */ }
 
   // ── Company name ──
@@ -536,7 +538,8 @@ function DiagramPlaceholder({ tab }: { tab: Tab }) {
     <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
       <div className="relative h-52 md:h-64">
         <img src={TAB_IMAGES[tab]} alt={tab + " solar system"}
-          className="absolute inset-0 w-full h-full object-cover transition-all duration-700" />
+          className="absolute inset-0 w-full h-full object-cover transition-all duration-700"
+          style={{ filter: "brightness(1.4)" }} />
         <div className="absolute inset-0"
           style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,31,63,0.85) 100%)" }} />
         <div className="relative z-10 h-full flex flex-col justify-between p-5">
@@ -847,6 +850,7 @@ export default function SolarDesigner() {
   const [showProInputs, setShowProInputs] = useState(false);
   const [showReadMe, setShowReadMe] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
+  const [showAssistant, setShowAssistant] = useState(false);
 
   const f = forms[tab];
   const isA = tab === "agricultural";
@@ -870,18 +874,26 @@ export default function SolarDesigner() {
       {/* Modals */}
       {showReadMe && <ReadMeModal onClose={() => setShowReadMe(false)} />}
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      <Dialog open={showAssistant} onOpenChange={setShowAssistant}>
+        <DialogContent className="max-w-4xl h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>مساعد التركيب الذكي</DialogTitle>
+          </DialogHeader>
+          <InstallationAssistant />
+        </DialogContent>
+      </Dialog>
 
       {/* Header */}
       <header className="relative overflow-hidden pt-12 pb-0"
-        style={{ background: `linear-gradient(160deg, ${NAVY} 0%, #030a17 100%)` }}>
+        style={{ background: `linear-gradient(160deg, #003366 0%, #001122 100%)` }}>
         <div className="absolute inset-0 opacity-10"
           style={{ backgroundImage: "radial-gradient(#fbbf24 0.6px, transparent 0)", backgroundSize: "24px 24px" }} />
         <div className="max-w-5xl mx-auto px-6 relative z-10">
           <div className="flex flex-col md:flex-row items-center gap-8">
             <div className="relative group">
               <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-3xl transition-opacity duration-700" />
-              <div className="relative w-28 h-28 bg-white rounded-[2rem] p-2 shadow-xl flex items-center justify-center border border-white/10 transition-transform duration-500 group-hover:scale-105">
-                <img src={akzLogo} alt="AKZ Logo" className="w-full h-full object-contain" />
+              <div className="relative w-28 h-28 bg-white rounded-[2rem] p-1 shadow-xl flex items-center justify-center border border-white/10 transition-transform duration-500 group-hover:scale-105">
+                <img src={akzLogo} alt="AKZ Logo" className="w-full h-full object-cover rounded-xl" />
               </div>
             </div>
             <div className="flex-1 text-center md:text-left">
@@ -942,6 +954,11 @@ export default function SolarDesigner() {
                 className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all"
                 style={{ background: "#fff", color: "#64748b", borderColor: "#e2e8f0" }}>
                 🌍 حول الموقع
+              </button>
+              <button type="button" onClick={() => setShowAssistant(true)}
+                className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all"
+                style={{ background: "#fff", color: "#64748b", borderColor: "#e2e8f0" }}>
+                🤖 مساعد التركيب
               </button>
             </div>
           </div>
