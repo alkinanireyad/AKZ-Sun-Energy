@@ -875,11 +875,13 @@ export default function SolarDesigner() {
       {showReadMe && <ReadMeModal onClose={() => setShowReadMe(false)} />}
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       <Dialog open={showAssistant} onOpenChange={setShowAssistant}>
-        <DialogContent className="max-w-4xl h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>مساعد التركيب الذكي</DialogTitle>
+        <DialogContent className="w-screen max-w-5xl h-[90vh] flex flex-col p-0">
+          <DialogHeader className="px-6 py-4 border-b">
+            <DialogTitle>🤖 مساعد التركيب الذكي</DialogTitle>
           </DialogHeader>
-          <InstallationAssistant />
+          <div className="flex-1 overflow-hidden">
+            <InstallationAssistant />
+          </div>
         </DialogContent>
       </Dialog>
 
