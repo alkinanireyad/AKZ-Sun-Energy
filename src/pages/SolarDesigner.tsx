@@ -538,10 +538,7 @@ function DiagramPlaceholder({ tab }: { tab: Tab }) {
     <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
       <div className="relative h-52 md:h-64">
         <img src={TAB_IMAGES[tab]} alt={tab + " solar system"}
-          className="absolute inset-0 w-full h-full object-cover transition-all duration-700"
-          style={{ filter: "brightness(1.4)" }} />
-        <div className="absolute inset-0"
-          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.4) 0%, rgba(0,31,63,0.85) 100%)" }} />
+          className="absolute inset-0 w-full h-full object-cover" />
         <div className="relative z-10 h-full flex flex-col justify-between p-5">
           <div className="flex items-center justify-between">
             <div>
@@ -892,9 +889,8 @@ export default function SolarDesigner() {
           style={{ backgroundImage: "radial-gradient(#fbbf24 0.6px, transparent 0)", backgroundSize: "24px 24px" }} />
         <div className="max-w-5xl mx-auto px-6 relative z-10">
           <div className="flex flex-col md:flex-row items-center gap-8">
-            <div className="relative group">
-              <div className="absolute -inset-4 bg-amber-500/10 rounded-full blur-3xl transition-opacity duration-700" />
-              <div className="relative w-28 h-28 bg-white rounded-[2rem] p-1 shadow-xl flex items-center justify-center border border-white/10 transition-transform duration-500 group-hover:scale-105">
+            <div className="relative">
+              <div className="relative w-28 h-28 bg-white rounded-[2rem] p-1 flex items-center justify-center border border-white/10">
                 <img src={akzLogo} alt="AKZ Logo" className="w-full h-full object-cover rounded-xl" />
               </div>
             </div>
